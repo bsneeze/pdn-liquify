@@ -1,0 +1,218 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="12.0">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProductVersion>9.0.30729</ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{FADF5B9D-AC66-40E2-B09D-56480C9A633C}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>pyrochild.effects.liquify</RootNamespace>
+    <AssemblyName>Liquify</AssemblyName>
+    <FileUpgradeFlags>
+    </FileUpgradeFlags>
+    <OldToolsVersion>3.5</OldToolsVersion>
+    <UpgradeBackupLocation>
+    </UpgradeBackupLocation>
+    <TargetFrameworkVersion>v4.6</TargetFrameworkVersion>
+    <SccProjectName>
+    </SccProjectName>
+    <SccLocalPath>
+    </SccLocalPath>
+    <SccAuxPath>
+    </SccAuxPath>
+    <SccProvider>
+    </SccProvider>
+    <PublishUrl>publish\</PublishUrl>
+    <Install>true</Install>
+    <InstallFrom>Disk</InstallFrom>
+    <UpdateEnabled>false</UpdateEnabled>
+    <UpdateMode>Foreground</UpdateMode>
+    <UpdateInterval>7</UpdateInterval>
+    <UpdateIntervalUnits>Days</UpdateIntervalUnits>
+    <UpdatePeriodically>false</UpdatePeriodically>
+    <UpdateRequired>false</UpdateRequired>
+    <MapFileExtensions>true</MapFileExtensions>
+    <ApplicationRevision>0</ApplicationRevision>
+    <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
+    <IsWebBootstrapper>false</IsWebBootstrapper>
+    <UseApplicationTrust>false</UseApplicationTrust>
+    <BootstrapperEnabled>true</BootstrapperEnabled>
+    <TargetFrameworkProfile>
+    </TargetFrameworkProfile>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="PaintDotNet.Base">
+      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Base.dll</HintPath>
+    </Reference>
+    <Reference Include="PaintDotNet.Core">
+      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="PaintDotNet.Data">
+      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Data.dll</HintPath>
+    </Reference>
+    <Reference Include="PaintDotNet.Effects">
+      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Effects.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core">
+      <RequiredTargetFramework>3.5</RequiredTargetFramework>
+    </Reference>
+    <Reference Include="System.Data" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
+    <Reference Include="WindowsBase">
+      <RequiredTargetFramework>3.0</RequiredTargetFramework>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="common\CanvasPanel.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="common\CanvasPanel.Designer.cs">
+      <DependentUpon>CanvasPanel.cs</DependentUpon>
+    </Compile>
+    <Compile Include="common\CanvasMouseEventArgs.cs" />
+    <Compile Include="common\ColorDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="common\ColorDialog.Designer.cs">
+      <DependentUpon>ColorDialog.cs</DependentUpon>
+    </Compile>
+    <Compile Include="common\ColorGradientControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="common\ColorWheel.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="common\Extensions.cs" />
+    <Compile Include="common\Utility.cs" />
+    <Compile Include="LiquifyMode.cs" />
+    <Compile Include="ConfigDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ConfigDialog.designer.cs">
+      <DependentUpon>ConfigDialog.cs</DependentUpon>
+    </Compile>
+    <Compile Include="ConfigToken.cs" />
+    <Compile Include="DisplacementVector.cs" />
+    <Compile Include="common\DiskBackedSurface.cs" />
+    <Compile Include="common\HistoryItem.cs" />
+    <Compile Include="common\HistoryStack.cs" />
+    <Compile Include="PluginSupportInfo.cs" />
+    <Compile Include="QueuedToolRenderer\ISurface.cs" />
+    <Compile Include="QueuedToolRenderer\QueuedToolEventArgs.cs" />
+    <Compile Include="QueuedToolRenderer\QueuedToolEventHandler.cs" />
+    <Compile Include="QueuedToolRenderer\QueuedToolEventType.cs" />
+    <Compile Include="QueuedToolRenderer\QueuedToolRenderer.cs" />
+    <Compile Include="common\SliderControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="DisplacementMesh.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Liquify.cs" />
+    <Compile Include="LiquifyRenderer.cs" />
+    <Compile Include="LiquifyEventArgs.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="common\ColorDialog.resx">
+      <DependentUpon>ColorDialog.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="common\ColorWheel.resx">
+      <DependentUpon>ColorWheel.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="ConfigDialog.resx">
+      <DependentUpon>ConfigDialog.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="images\icon.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <BootstrapperPackage Include="Microsoft.Net.Client.3.5">
+      <Visible>False</Visible>
+      <ProductName>.NET Framework 3.5 SP1 Client Profile</ProductName>
+      <Install>false</Install>
+    </BootstrapperPackage>
+    <BootstrapperPackage Include="Microsoft.Net.Framework.3.5.SP1">
+      <Visible>False</Visible>
+      <ProductName>.NET Framework 3.5 SP1</ProductName>
+      <Install>true</Install>
+    </BootstrapperPackage>
+    <BootstrapperPackage Include="Microsoft.VisualBasic.PowerPacks.10.0">
+      <Visible>False</Visible>
+      <ProductName>Microsoft Visual Basic PowerPacks 10.0</ProductName>
+      <Install>true</Install>
+    </BootstrapperPackage>
+    <BootstrapperPackage Include="Microsoft.Windows.Installer.3.1">
+      <Visible>False</Visible>
+      <ProductName>Windows Installer 3.1</ProductName>
+      <Install>true</Install>
+    </BootstrapperPackage>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="images\bloat.png" />
+    <EmbeddedResource Include="images\donate.png" />
+    <EmbeddedResource Include="images\freeze.png" />
+    <EmbeddedResource Include="images\gridlarge.png" />
+    <EmbeddedResource Include="images\gridsmall.png" />
+    <EmbeddedResource Include="images\pucker.png" />
+    <EmbeddedResource Include="images\push.png" />
+    <EmbeddedResource Include="images\redo.png" />
+    <EmbeddedResource Include="images\save.png" />
+    <EmbeddedResource Include="images\thaw.png" />
+    <EmbeddedResource Include="images\twistleft.png" />
+    <EmbeddedResource Include="images\twistright.png" />
+    <EmbeddedResource Include="images\undo.png" />
+    <EmbeddedResource Include="images\zoomin.png" />
+    <EmbeddedResource Include="images\zoomout.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="images\minus.png" />
+    <EmbeddedResource Include="images\open.png" />
+    <EmbeddedResource Include="images\plus.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="images\reconstruct.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="images\colorwheel.png" />
+  </ItemGroup>
+  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+  <PropertyGroup>
+    <PostBuildEvent>copy "$(TargetPath)" "%25PROGRAMW6432%25\Paint.NET\Effects\"</PostBuildEvent>
+  </PropertyGroup>
+  <PropertyGroup>
+    <PreBuildEvent>if exist "$(TargetPath)" move "$(TargetPath)" "$(TargetPath).%25date:/=%25.%25time::=%25.locked"</PreBuildEvent>
+  </PropertyGroup>
+</Project>
