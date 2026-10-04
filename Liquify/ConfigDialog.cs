@@ -1,15 +1,18 @@
 ﻿using PaintDotNet;
 using PaintDotNet.Effects;
+using PaintDotNet.Imaging;
+using PaintDotNet.Rendering;
 using pyrochild.effects.common;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace pyrochild.effects.liquify
 {
-    public partial class ConfigDialog : EffectConfigDialog
+    public partial class ConfigDialog : EffectConfigForm<Liquify, ConfigToken>
     {
         private HistoryStack historystack;
         private LiquifyRenderer renderer;
@@ -20,6 +23,7 @@ namespace pyrochild.effects.liquify
         private const char undoShortcut = (char)26;
         private const char redoShortcut = (char)25;
         private Surface surface;
+        private Surface source;
         private SliderControl pressure, density;
         private const int minPenSize = 2;
         private const int maxPenSize = 1500;
@@ -33,15 +37,51 @@ namespace pyrochild.effects.liquify
         private Dictionary<Control, LiquifyMode> rendermodes;
         private LiquifyMode mode;
 
+        private float DpiScale
+        {
+            get { return this.DeviceDpi / 96f; }
+        }
+
+        // RenderScans is the selection's actual shape; RenderBounds is only its bounding box.
+        private PdnRegion CreateSelectionRegion()
+        {
+            Rectangle[] scans = Environment.Selection.RenderScans
+                .Select(r => new Rectangle(r.X, r.Y, r.Width, r.Height))
+                .ToArray();
+
+            using (System.Drawing.Drawing2D.GraphicsPath path = new System.Drawing.Drawing2D.GraphicsPath(System.Drawing.Drawing2D.FillMode.Winding))
+            {
+                if (scans.Length > 0)
+                {
+                    path.AddRectangles(scans);
+                }
+                return new PdnRegion(path);
+            }
+        }
+
         public ConfigDialog()
         {
             InitializeComponent();
+            this.Load += (themeSender, themeArgs) => ThemeHelper.Apply(this);
+            this.Shown += (themeSender, themeArgs) => ThemeHelper.Apply(this);
 
             this.Text = Liquify.StaticDialogName;
+
+            float dpiScale = DpiScale;
 
             pressure = new SliderControl();
             pressure.Minimum = .01f;
             density = new SliderControl();
+
+            if (dpiScale > 1.01f)
+            {
+                // settingStrip's own button icons aren't scaled here: ToolStrip does that itself.
+                pressure.Size = new Size((int)Math.Round(pressure.Width * dpiScale), (int)Math.Round(pressure.Height * dpiScale));
+                density.Size = new Size((int)Math.Round(density.Width * dpiScale), (int)Math.Round(density.Height * dpiScale));
+
+                brushSize.Size = new Size((int)Math.Round(brushSize.Width * dpiScale), brushSize.Height);
+                zoom.Size = new Size((int)Math.Round(zoom.Width * dpiScale), zoom.Height);
+            }
 
             this.brushSize.ComboBox.SuspendLayout();
 
@@ -92,23 +132,51 @@ namespace pyrochild.effects.liquify
         private void InitializeUIImages()
         {
             Type t = typeof(Liquify);
+            float dpiScale = DpiScale;
 
-            push.Image = new Bitmap(t, "images.push.png");
-            reconstruct.Image = new Bitmap(t, "images.reconstruct.png");
-            bloat.Image = new Bitmap(t, "images.bloat.png");
-            pucker.Image = new Bitmap(t, "images.pucker.png");
-            load.Image = new Bitmap(t, "images.open.png");
-            save.Image = new Bitmap(t, "images.save.png");
-            twistleft.Image = new Bitmap(t, "images.twistleft.png");
-            twistright.Image = new Bitmap(t, "images.twistright.png");
+            push.Image = LoadIcon(t, "images.push.png", dpiScale);
+            reconstruct.Image = LoadIcon(t, "images.reconstruct.png", dpiScale);
+            bloat.Image = LoadIcon(t, "images.bloat.png", dpiScale);
+            pucker.Image = LoadIcon(t, "images.pucker.png", dpiScale);
+            load.Image = LoadIcon(t, "images.open.png", dpiScale);
+            save.Image = LoadIcon(t, "images.save.png", dpiScale);
+            twistleft.Image = LoadIcon(t, "images.twistleft.png", dpiScale);
+            twistright.Image = LoadIcon(t, "images.twistright.png", dpiScale);
+
+            // ToolStrip scales these itself, so pass the unscaled bitmap.
             brushSizeIncrement.Image = new Bitmap(t, "images.plus.png");
             brushSizeDecrement.Image = new Bitmap(t, "images.minus.png");
             undo.Image = new Bitmap(t, "images.undo.png");
             redo.Image = new Bitmap(t, "images.redo.png");
             zoomIn.Image = new Bitmap(t, "images.zoomin.png");
             zoomOut.Image = new Bitmap(t, "images.zoomout.png");
-            freeze.Image = new Bitmap(t, "images.freeze.png");
-            thaw.Image = new Bitmap(t, "images.thaw.png");
+
+            freeze.Image = LoadIcon(t, "images.freeze.png", dpiScale);
+            thaw.Image = LoadIcon(t, "images.thaw.png", dpiScale);
+        }
+
+        private static Bitmap LoadIcon(Type resourceType, string resourceName, float dpiScale)
+        {
+            Bitmap original = new Bitmap(resourceType, resourceName);
+
+            if (dpiScale <= 1.01f)
+            {
+                return original;
+            }
+
+            int width = Math.Max(1, (int)Math.Round(original.Width * dpiScale));
+            int height = Math.Max(1, (int)Math.Round(original.Height * dpiScale));
+
+            Bitmap scaled = new Bitmap(width, height);
+            using (Graphics g = Graphics.FromImage(scaled))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.DrawImage(original, 0, 0, width, height);
+            }
+            original.Dispose();
+
+            return scaled;
         }
 
         private void InitializeTooltips()
@@ -195,8 +263,24 @@ namespace pyrochild.effects.liquify
 
         private void renderer_Invalidated(object sender, InvalidateEventArgs e)
         {
-            mesh.Render(surface, EffectSourceSurface, e.InvalidRect, ColorBgra.Red);
+            mesh.Render(surface, source, e.InvalidRect, ColorBgra.Red);
             canvas.InvalidateCanvas(e.InvalidRect);
+        }
+
+        private unsafe Surface GetSourceAsClassicSurface()
+        {
+            SizeInt32 docSize = Environment.Document.Size;
+            Surface result = new Surface(docSize.Width, docSize.Height);
+
+            using (IEffectInputBitmap<ColorBgra32> srcBitmap = Environment.GetSourceBitmapBgra32())
+            using (IBitmapLock<ColorBgra32> srcLock = srcBitmap.Lock(new RectInt32(0, 0, docSize.Width, docSize.Height)))
+            {
+                RegionPtr<ColorBgra32> srcRegion32 = new RegionPtr<ColorBgra32>(srcLock.Buffer, srcLock.Size, srcLock.BufferStride);
+                RegionPtr<ColorBgra> dstRegion = new RegionPtr<ColorBgra>(result.GetPointPointer(0, 0), result.Width, result.Height, result.Stride);
+                srcRegion32.Cast<ColorBgra>().CopyTo(dstRegion);
+            }
+
+            return result;
         }
 
         private void toolRadioButton_CheckedChanged(object sender, EventArgs e)
@@ -231,7 +315,7 @@ namespace pyrochild.effects.liquify
                 else
                 {
                     // Clear the error, if any
-                    this.brushSize.BackColor = SystemColors.Window;
+                    this.brushSize.BackColor = ThemeHelper.FieldBackColor;
                     this.brushSize.ToolTipText = string.Empty;
                     OnPenChanged();
                 }
@@ -245,16 +329,26 @@ namespace pyrochild.effects.liquify
 
         private void donate_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            Services.GetService<PaintDotNet.AppModel.IShellService>().LaunchUrl(this, "http://forums.getpaint.net/index.php?showtopic=7291");
+            ((PaintDotNet.AppModel.IShellService)Services.GetService(typeof(PaintDotNet.AppModel.IShellService))).LaunchUrl(this, "http://forums.getpaint.net/index.php?showtopic=7291");
         }
 
         private void ConfigDialog_Load(object sender, EventArgs e)
         {
-            surface = new Surface(EffectSourceSurface.Size);
+            int topMargin = (int)Math.Round(6 * DpiScale);
+            settingStrip.Location = new Point(settingStrip.Location.X, settingStrip.Location.Y + topMargin);
+
+            int newCanvasTop = settingStrip.Bottom;
+            int topDelta = newCanvasTop - canvas.Top;
+            canvas.Bounds = new Rectangle(canvas.Left, newCanvasTop, canvas.Width, canvas.Height - topDelta);
+
+            source = GetSourceAsClassicSurface();
+            surface = new Surface(source.Size);
             canvas.Surface = surface;
-            canvas.Selection = Selection;
-            mesh = new DisplacementMesh(EffectSourceSurface.Size);
-            mesh.Render(surface, EffectSourceSurface, EffectSourceSurface.Bounds);
+
+            canvas.Selection = CreateSelectionRegion();
+
+            mesh = new DisplacementMesh(source.Size);
+            mesh.Render(surface, source, source.Bounds);
             historystack = new HistoryStack(mesh, false);
 
             InitializeRenderer();
@@ -290,13 +384,13 @@ namespace pyrochild.effects.liquify
 
         public void AddToPenSize(int delta)
         {
-            int newWidth = Int32Util.Clamp(BrushSize + delta, minPenSize, maxPenSize);
+            int newWidth = Math.Clamp(BrushSize + delta, minPenSize, maxPenSize);
             BrushSize = newWidth;
         }
 
-        protected override void InitialInitToken()
+        protected override EffectConfigToken OnCreateInitialToken()
         {
-            theEffectToken = new ConfigToken();
+            return new ConfigToken();
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
@@ -346,7 +440,7 @@ namespace pyrochild.effects.liquify
             {
                 historystack.StepBack(mesh);
                 UpdateHistoryButtons(false);
-                mesh.Render(surface, EffectSourceSurface, EffectSourceSurface.Bounds, ColorBgra.Red);
+                mesh.Render(surface, source, source.Bounds, ColorBgra.Red);
                 canvas.Invalidate();
             }
         }
@@ -357,7 +451,7 @@ namespace pyrochild.effects.liquify
             {
                 historystack.StepForward(mesh);
                 UpdateHistoryButtons(false);
-                mesh.Render(surface, EffectSourceSurface, EffectSourceSurface.Bounds, ColorBgra.Red);
+                mesh.Render(surface, source, source.Bounds, ColorBgra.Red);
                 canvas.Invalidate();
             }
         }
@@ -496,17 +590,15 @@ namespace pyrochild.effects.liquify
         }
 
 
-        protected override void InitDialogFromToken(EffectConfigToken effectTokenCopy)
+        protected override void OnUpdateDialogFromToken(ConfigToken token)
         {
-            ConfigToken token = effectTokenCopy as ConfigToken;
             Pressure = token.pressure;
             Density = token.density;
             BrushSize = token.size;
         }
 
-        protected override void InitTokenFromDialog()
+        protected override void OnUpdateTokenFromDialog(ConfigToken token)
         {
-            ConfigToken token = EffectToken as ConfigToken;
             token.pressure = Pressure;
             token.density = Density;
             token.size = BrushSize;
@@ -515,7 +607,7 @@ namespace pyrochild.effects.liquify
 
         private void ok_Click(object sender, EventArgs e)
         {
-            FinishTokenUpdate();
+            UpdateTokenFromDialog();
         }
 
         const string dialogFilter = "Liquify Mesh (*.MSH)|*.msh";
@@ -530,7 +622,7 @@ namespace pyrochild.effects.liquify
                 {
                     FileStream fs = new FileStream(ofd.FileName, FileMode.Open);
                     mesh.Load(fs);
-                    mesh.Render(surface, EffectSourceSurface, surface.Bounds);
+                    mesh.Render(surface, source, surface.Bounds);
                     canvas.InvalidateCanvas();
                 }
                 catch (Exception exception)

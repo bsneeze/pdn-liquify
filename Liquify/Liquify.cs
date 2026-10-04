@@ -1,15 +1,18 @@
 using PaintDotNet;
 using PaintDotNet.Effects;
+using PaintDotNet.Imaging;
+using PaintDotNet.Rendering;
 using System.Drawing;
 
 namespace pyrochild.effects.liquify
 {
     [PluginSupportInfo(typeof(PluginSupportInfo))]
-    public sealed class Liquify : Effect
+    public sealed class Liquify : BitmapEffect<ConfigToken>
     {
         DisplacementMesh mesh;
+        Surface cachedSource;
 
-        public Liquify() : base(StaticName, StaticIcon, StaticSubMenu, EffectFlags.Configurable) { }
+        public Liquify() : base(StaticName, StaticIcon, StaticSubMenu, BitmapEffectOptions.Create() with { IsConfigurable = true }) { }
 
         internal static string RawName { get { return "Liquify"; } }
         public static string StaticName
@@ -39,33 +42,78 @@ namespace pyrochild.effects.liquify
             }
         }
 
-        public override EffectConfigDialog CreateConfigDialog()
+        protected override IEffectConfigForm OnCreateConfigForm()
         {
             return new ConfigDialog();
         }
 
-        protected override void OnSetRenderInfo(EffectConfigToken parameters, RenderArgs dstArgs, RenderArgs srcArgs)
+        protected override void OnInitializeRenderInfo(IBitmapEffectRenderInfo renderInfo)
         {
-            base.OnSetRenderInfo(parameters, dstArgs, srcArgs);
+            base.OnInitializeRenderInfo(renderInfo);
+            renderInfo.Schedule = BitmapEffectRenderingSchedule.None;
+        }
 
-            ConfigToken token = parameters as ConfigToken;
-            if (token != null && token.mesh != null)
+        protected override void OnSetToken(ConfigToken newToken)
+        {
+            base.OnSetToken(newToken);
+
+            if (newToken != null && newToken.mesh != null)
             {
-                mesh = token.mesh;
-                if (mesh.Size != dstArgs.Surface.Size)
+                mesh = newToken.mesh;
+            }
+        }
+
+        protected override unsafe void OnRender(IBitmapEffectOutput output)
+        {
+            if (mesh == null)
+            {
+                return;
+            }
+
+            if (cachedSource == null)
+            {
+                SizeInt32 docSize = Environment.Document.Size;
+                Size canvasSize = new Size(docSize.Width, docSize.Height);
+
+                if (mesh.Size != canvasSize)
                 {
-                    mesh = mesh.Resize(dstArgs.Size);
+                    mesh = mesh.Resize(canvasSize);
+                }
+
+                cachedSource = new Surface(docSize.Width, docSize.Height);
+                using (IEffectInputBitmap<ColorBgra32> srcBitmap = Environment.GetSourceBitmapBgra32())
+                using (IBitmapLock<ColorBgra32> srcLock = srcBitmap.Lock(new RectInt32(0, 0, docSize.Width, docSize.Height)))
+                {
+                    RegionPtr<ColorBgra32> srcRegion32 = new RegionPtr<ColorBgra32>(srcLock.Buffer, srcLock.Size, srcLock.BufferStride);
+                    RegionPtr<ColorBgra> dstRegion = new RegionPtr<ColorBgra>(cachedSource.GetPointPointer(0, 0), cachedSource.Width, cachedSource.Height, cachedSource.Stride);
+                    srcRegion32.Cast<ColorBgra>().CopyTo(dstRegion);
+                }
+            }
+
+            RectInt32 bounds = output.Bounds;
+            Rectangle canvasRect = new Rectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+
+            using (Surface tempDst = new Surface(cachedSource.Size))
+            {
+                mesh.Render(tempDst, cachedSource, canvasRect);
+
+                using (IBitmapLock<ColorBgra32> dstLock = output.LockBgra32())
+                {
+                    RegionPtr<ColorBgra32> dstRegion = new RegionPtr<ColorBgra32>(dstLock.Buffer, dstLock.Size, dstLock.BufferStride);
+                    RegionPtr<ColorBgra> srcRegion = new RegionPtr<ColorBgra>(tempDst.GetPointPointer(bounds.X, bounds.Y), bounds.Width, bounds.Height, tempDst.Stride);
+                    srcRegion.Cast<ColorBgra32>().CopyTo(dstRegion);
                 }
             }
         }
 
-        public override void Render(EffectConfigToken parameters, RenderArgs dstArgs, RenderArgs srcArgs, Rectangle[] rois, int startIndex, int length)
+        protected override void OnDispose(bool disposing)
         {
-            if (mesh != null)
+            if (disposing)
             {
-                for (int i = startIndex; i < startIndex + length; ++i)
-                    mesh.Render(dstArgs.Surface, srcArgs.Surface, rois[i]);
+                cachedSource?.Dispose();
+                cachedSource = null;
             }
+            base.OnDispose(disposing);
         }
     }
 }

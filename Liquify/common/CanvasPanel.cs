@@ -22,6 +22,7 @@ namespace pyrochild.effects.common
         private PdnRegion selectionOutline;
         private Brush tintbrush;
         private Brush outlinebrush;
+        private Brush outerCheckerBrush;
 
         public CanvasPanel()
         {
@@ -31,6 +32,46 @@ namespace pyrochild.effects.common
 
             tintbrush = new SolidBrush(Color.FromArgb(63, 0, 0, 0));
             outlinebrush = SystemBrushes.Highlight;
+        }
+
+        // Not Surface.ClearWithCheckerboardPattern(): on some machines it renders as a flat fill.
+        internal static Bitmap CreateCheckerboardTile(float dpiScale)
+        {
+            int cell = Math.Max(4, (int)Math.Round(8 * dpiScale));
+            Bitmap bmp = new Bitmap(cell * 2, cell * 2);
+            using (Graphics g = Graphics.FromImage(bmp))
+            using (Brush light = new SolidBrush(Color.White))
+            using (Brush dark = new SolidBrush(Color.FromArgb(191, 191, 191)))
+            {
+                g.FillRectangle(light, 0, 0, cell, cell);
+                g.FillRectangle(dark, cell, 0, cell, cell);
+                g.FillRectangle(dark, 0, cell, cell, cell);
+                g.FillRectangle(light, cell, cell, cell, cell);
+            }
+            return bmp;
+        }
+
+        // The "Background" menu can make this panel transparent too, so it needs the same checkerboard.
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if (BackColor.A != 255)
+            {
+                if (outerCheckerBrush == null)
+                {
+                    outerCheckerBrush = new TextureBrush(CreateCheckerboardTile(this.DeviceDpi / 96f), WrapMode.Tile);
+                }
+
+                e.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+                e.Graphics.FillRectangle(outerCheckerBrush, e.ClipRectangle);
+            }
+
+            if (BackColor != Color.Transparent)
+            {
+                using (Brush b = new SolidBrush(BackColor))
+                {
+                    e.Graphics.FillRectangle(b, e.ClipRectangle);
+                }
+            }
         }
 
         void canvas_Paint(object sender, PaintEventArgs e)
@@ -204,10 +245,6 @@ namespace pyrochild.effects.common
             CanvasPanel_Resize(this, EventArgs.Empty);
         }
 
-        void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
-        {
-        }
-
         public float ZoomFactor
         {
             get
@@ -278,29 +315,28 @@ namespace pyrochild.effects.common
                 contextMenu.Items.Add(new ToolStripLabel("Background"));
                 contextMenu.Items.Add(new ToolStripSeparator());
 
-                sfc.ClearWithCheckerboardPattern();
                 if (!colorsOnly)
-                    contextMenu.Items.Add("Transparent", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) =>
+                    contextMenu.Items.Add("Transparent", CreateCheckerboardTile(1f), (s, e) =>
                     {
                         sender.BackgroundImage = null;
                         sender.BackColor = Color.Transparent;
                     });
 
-                sfc.Clear(ColorBgra.Black);
+                sfc.Fill(ColorBgra.Black);
                 contextMenu.Items.Add("Black", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) =>
                 {
                     sender.BackgroundImage = null;
                     sender.BackColor = Color.Black;
                 });
 
-                sfc.Clear(ColorBgra.White);
+                sfc.Fill(ColorBgra.White);
                 contextMenu.Items.Add("White", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) =>
                 {
                     sender.BackgroundImage = null;
                     sender.BackColor = Color.White;
                 });
 
-                sfc.Clear(ColorBgra.FromBgr(127, 127, 127));
+                sfc.Fill(ColorBgra.FromBgr(127, 127, 127));
                 contextMenu.Items.Add("Gray", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) =>
                 {
                     sender.BackgroundImage = null;
@@ -559,12 +595,6 @@ namespace pyrochild.effects.common
             base.SetStyle(ControlStyles.Selectable | ControlStyles.Opaque, false);
             base.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer|ControlStyles.SupportsTransparentBackColor, true);
             this.TabStop = false;
-
-            using (Surface s = new Surface(16, 16))
-            {
-                s.ClearWithCheckerboardPattern();
-                checkerbrush = new TextureBrush(s.CreateAliasedBitmap(), WrapMode.Tile);
-            }
         }
 
         protected override void Dispose(bool disposing)
@@ -582,6 +612,11 @@ namespace pyrochild.effects.common
 
             if (BackColor.A != 255)
             {
+                if (checkerbrush == null)
+                {
+                    checkerbrush = new TextureBrush(CanvasPanel.CreateCheckerboardTile(this.DeviceDpi / 96f), WrapMode.Tile);
+                }
+
                 pe.Graphics.FillRectangle(checkerbrush, pe.ClipRectangle);
             }
             if (BackColor != Color.Transparent)

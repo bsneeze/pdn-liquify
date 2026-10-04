@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Builds the plugin (which copies it to the paint.net Effects folder), then
+            // launches paint.net with the debugger attached.
+            "name": "Launch Paint.NET",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${env:ProgramFiles}\\paint.net\\paintdotnet.exe",
+            "args": [],
+            "cwd": "${env:ProgramFiles}\\paint.net",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "justMyCode": true
+        },
+        {
+            "name": "Attach to Paint.NET",
+            "type": "coreclr",
+            "request": "attach",
+            "processName": "paintdotnet.exe",
+            "justMyCode": true
+        }
+    ]
+}

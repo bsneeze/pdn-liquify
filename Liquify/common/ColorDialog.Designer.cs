@@ -261,9 +261,9 @@
             this.aslider.DrawFarNub = true;
             this.aslider.DrawNearNub = false;
             this.aslider.Gradient = null;
-            this.aslider.Location = new System.Drawing.Point(221, 165);
+            this.aslider.Location = new System.Drawing.Point(221, 163);
             this.aslider.Name = "aslider";
-            this.aslider.Size = new System.Drawing.Size(73, 19);
+            this.aslider.Size = new System.Drawing.Size(73, 21);
             this.aslider.TabIndex = 38;
             this.aslider.Value = 0F;
             // 
@@ -273,9 +273,9 @@
             this.gslider.DrawFarNub = true;
             this.gslider.DrawNearNub = false;
             this.gslider.Gradient = null;
-            this.gslider.Location = new System.Drawing.Point(221, 35);
+            this.gslider.Location = new System.Drawing.Point(221, 33);
             this.gslider.Name = "gslider";
-            this.gslider.Size = new System.Drawing.Size(73, 19);
+            this.gslider.Size = new System.Drawing.Size(73, 21);
             this.gslider.TabIndex = 24;
             this.gslider.Value = 0F;
             // 
@@ -285,9 +285,9 @@
             this.bslider.DrawFarNub = true;
             this.bslider.DrawNearNub = false;
             this.bslider.Gradient = null;
-            this.bslider.Location = new System.Drawing.Point(221, 57);
+            this.bslider.Location = new System.Drawing.Point(221, 55);
             this.bslider.Name = "bslider";
-            this.bslider.Size = new System.Drawing.Size(73, 19);
+            this.bslider.Size = new System.Drawing.Size(73, 21);
             this.bslider.TabIndex = 23;
             this.bslider.Value = 0F;
             // 
@@ -297,9 +297,9 @@
             this.hslider.DrawFarNub = true;
             this.hslider.DrawNearNub = false;
             this.hslider.Gradient = null;
-            this.hslider.Location = new System.Drawing.Point(221, 89);
+            this.hslider.Location = new System.Drawing.Point(221, 87);
             this.hslider.Name = "hslider";
-            this.hslider.Size = new System.Drawing.Size(73, 19);
+            this.hslider.Size = new System.Drawing.Size(73, 21);
             this.hslider.TabIndex = 22;
             this.hslider.Value = 0F;
             // 
@@ -309,9 +309,9 @@
             this.sslider.DrawFarNub = true;
             this.sslider.DrawNearNub = false;
             this.sslider.Gradient = null;
-            this.sslider.Location = new System.Drawing.Point(221, 111);
+            this.sslider.Location = new System.Drawing.Point(221, 109);
             this.sslider.Name = "sslider";
-            this.sslider.Size = new System.Drawing.Size(73, 19);
+            this.sslider.Size = new System.Drawing.Size(73, 21);
             this.sslider.TabIndex = 21;
             this.sslider.Value = 0F;
             // 
@@ -321,9 +321,9 @@
             this.vslider.DrawFarNub = true;
             this.vslider.DrawNearNub = false;
             this.vslider.Gradient = null;
-            this.vslider.Location = new System.Drawing.Point(221, 133);
+            this.vslider.Location = new System.Drawing.Point(221, 131);
             this.vslider.Name = "vslider";
-            this.vslider.Size = new System.Drawing.Size(73, 19);
+            this.vslider.Size = new System.Drawing.Size(73, 21);
             this.vslider.TabIndex = 20;
             this.vslider.Value = 0F;
             // 
@@ -333,9 +333,9 @@
             this.rslider.DrawFarNub = true;
             this.rslider.DrawNearNub = false;
             this.rslider.Gradient = null;
-            this.rslider.Location = new System.Drawing.Point(221, 13);
+            this.rslider.Location = new System.Drawing.Point(221, 11);
             this.rslider.Name = "rslider";
-            this.rslider.Size = new System.Drawing.Size(73, 19);
+            this.rslider.Size = new System.Drawing.Size(73, 21);
             this.rslider.TabIndex = 18;
             this.rslider.Value = 0F;
             // 
@@ -353,11 +353,12 @@
             // ColorDialog
             // 
             this.AcceptButton = this.ok;
-            this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
             this.BackColor = System.Drawing.Color.White;
             this.CancelButton = this.cancel;
             this.ClientSize = new System.Drawing.Size(368, 231);
+            this.Font = new System.Drawing.Font("Microsoft Sans Serif", 8.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.Controls.Add(this.label7);
             this.Controls.Add(this.aupdown);
             this.Controls.Add(this.aslider);
