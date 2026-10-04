@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 using PaintDotNet;
+using PaintDotNet.Imaging;
 
 namespace pyrochild.effects.common
 {
@@ -26,7 +27,7 @@ namespace pyrochild.effects.common
         const float ringradiusratio = 0.75f;
 
         private ColorBgra color;
-        private HsvColor hsvcolor;
+        private ColorHsv96Float hsvcolor;
 
         public ColorBgra Color
         {
@@ -40,14 +41,14 @@ namespace pyrochild.effects.common
                 if (color != value)
                 {
                     color = value;
-                    hsvcolor = HsvColor.FromColor(color.ToColor());
+                    hsvcolor = color.ToHsvColor();
                     OnColorChanged();
                     Invalidate();
                 }
             }
         }
 
-        public HsvColor HsvColor
+        public ColorHsv96Float HsvColor
         {
             get
             {
@@ -127,8 +128,14 @@ namespace pyrochild.effects.common
                 int ix = (int)(bx + (wx - bx) * v + (hx - wx) * s * v + 0.5);
                 int iy = (int)(by + (wy - by) * v + (hy - wy) * s * v + 0.5);
 
-                e.Graphics.DrawRectangle(Pens.Black, ix - 1, iy - 1, 3, 3);
-                e.Graphics.DrawRectangle(Pens.White, ix, iy, 1, 1);
+                float markerScale = this.DeviceDpi / 96f;
+                int outerSize = Math.Max(3, (int)Math.Round(5 * markerScale));
+                int innerSize = Math.Max(1, (int)Math.Round(3 * markerScale));
+                int outerOffset = outerSize / 2;
+                int innerOffset = innerSize / 2;
+
+                e.Graphics.DrawRectangle(Pens.Black, ix - outerOffset, iy - outerOffset, outerSize, outerSize);
+                e.Graphics.DrawRectangle(Pens.White, ix - innerOffset, iy - innerOffset, innerSize, innerSize);
             }
 
             base.OnPaint(e);
@@ -180,7 +187,7 @@ namespace pyrochild.effects.common
 
             for (int y = 0; y < sfc.Height; y++)
             {
-                ColorBgra* ptr = sfc.GetRowAddress(y);
+                ColorBgra* ptr = sfc.GetRowPointer(y);
                 float cy = radius - y;
                 float cy2 = cy * cy;
                 for (int x = 0; x < sfc.Width; x++)
@@ -200,7 +207,7 @@ namespace pyrochild.effects.common
                      && r >= innerradius)
                     {
                         //draw the hue ring
-                        *ptr = new HsvColor((int)(theta * radtodeg), 100, 100).ToColorBgra();
+                        *ptr = new ColorHsv96Float((float)(theta * radtodeg), 100, 100).ToColorBgra();
 
                         //antialias
                         if (radius - r <= 1 && radius - r >= 0)
@@ -220,7 +227,7 @@ namespace pyrochild.effects.common
 
                             int sat = (int)(100 * s);
                             int val = (int)(100 * v);
-                            *ptr = new HsvColor(hsvcolor.Hue, sat, val).ToColorBgra();
+                            *ptr = new ColorHsv96Float(hsvcolor.Hue, sat, val).ToColorBgra();
 
                             //aa
                             if (tx <= 1 && tx >= 0)

@@ -2,7 +2,7 @@ using PaintDotNet.Effects;
 
 namespace pyrochild.effects.liquify
 {
-    class ConfigToken : EffectConfigToken
+    public class ConfigToken : EffectConfigToken
     {
         public DisplacementMesh mesh;
         

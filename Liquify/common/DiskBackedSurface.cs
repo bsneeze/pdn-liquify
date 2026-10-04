@@ -13,9 +13,7 @@ using System.IO.Compression;
 using PaintDotNet;
 using State = pyrochild.effects.liquify.DiskBackedSurfaceState;
 using System.Drawing;
-using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading;
-using System.Runtime.Serialization;
 
 namespace pyrochild.effects.liquify
 {
@@ -70,14 +68,6 @@ namespace pyrochild.effects.liquify
         public State State { get { return state; } }
         public Rectangle Bounds { get { return new Rectangle(0, 0, width, height); } }
 
-        private class SB:SerializationBinder
-        {
-            public override Type BindToType(string assemblyName, string typeName)
-            {
-                return Type.GetType(string.Format("{0}, {1}", typeName, assemblyName));
-            }
-        }
-
         public void ToMemory()
         {
             if (state == State.Memory) { return; }
@@ -85,9 +75,9 @@ namespace pyrochild.effects.liquify
             FileStream fs = new FileStream(backingfile, FileMode.Open, FileAccess.Read);
             try
             {
-                BinaryFormatter bf = new BinaryFormatter();
-                bf.Binder = new SB();
-                surface = (DisplacementMesh)bf.Deserialize(fs);
+                DisplacementMesh loaded = new DisplacementMesh(width, height);
+                loaded.Load(fs);
+                surface = loaded;
                 state = State.Memory;
             }
             catch (ThreadAbortException) { }
@@ -114,8 +104,7 @@ namespace pyrochild.effects.liquify
             FileStream fs = new FileStream(backingfile, FileMode.Create);
             try
             {
-                BinaryFormatter bf = new BinaryFormatter();
-                bf.Serialize(fs, surface);
+                surface.Save(fs);
                 state = State.Disk;
             }
             catch (ThreadAbortException) { }

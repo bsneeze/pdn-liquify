@@ -14,8 +14,9 @@ namespace pyrochild.effects.common
         private bool tracking = false;
         private bool highlight = false;
 
-        private const int triangleSize = 7;
-        private const int triangleHalfLength = (triangleSize - 1) / 2;
+        private float DpiScale => this.DeviceDpi / 96f;
+        private int triangleSize => Math.Max(7, (int)Math.Round(7 * DpiScale));
+        private int triangleHalfLength => (triangleSize - 1) / 2;
 
         private ColorBgra[] gradient = null;
 

@@ -91,11 +91,8 @@ namespace pyrochild.effects.common
             aborted = true;
             lock (eventQueue)
             {
-                if (eventQueue.Count > 0)
-                {
-                    eventQueue.Clear();
-                    eventQueue.Enqueue(new QueuedToolAbortEventArgs());
-                }
+                eventQueue.Clear();
+                eventQueue.Enqueue(new QueuedToolAbortEventArgs());
             }
             OnEventQueued();
         }
