@@ -156,7 +156,10 @@ namespace pyrochild.effects.liquify
             {
                 RadioButton radioButton = control as RadioButton;
                 if (radioButton != null)
+                {
                     radioButton.CheckedChanged += new EventHandler(toolRadioButton_CheckedChanged);
+                    radioButton.Click += new EventHandler(toolRadioButton_Click);
+                }
             }
 
             InitializeUIImages();
@@ -188,6 +191,7 @@ namespace pyrochild.effects.liquify
             redo.Image = new Bitmap(t, "images.redo.png");
             zoomIn.Image = new Bitmap(t, "images.zoomin.png");
             zoomOut.Image = new Bitmap(t, "images.zoomout.png");
+            panTool.Image = new Bitmap(t, "images.pan.png");
             showMask.Image = new Bitmap(t, "images.showmask.png");
             meshSmall.Image = new Bitmap(t, "images.gridsmall.png");
             meshLarge.Image = new Bitmap(t, "images.gridlarge.png");
@@ -256,6 +260,7 @@ namespace pyrochild.effects.liquify
             zoomIn.ToolTipText = "Zoom in (Ctrl +)";
             zoomOut.ToolTipText = "Zoom out (Ctrl -)";
             zoom.ToolTipText = "Zoom (Ctrl+0 for 100%, Ctrl+B to fit)";
+            panTool.ToolTipText = "Pan: drag to move the view (H). Space-drag and middle-drag also pan.";
         }
 
         private void InitializeRenderer()
@@ -449,14 +454,18 @@ namespace pyrochild.effects.liquify
             {
                 switch (keyData)
                 {
-                    case Keys.P: push.Checked = true; return true;
-                    case Keys.L: twistleft.Checked = true; return true;
-                    case Keys.R: twistright.Checked = true; return true;
-                    case Keys.B: bloat.Checked = true; return true;
-                    case Keys.S: pucker.Checked = true; return true;
-                    case Keys.E: reconstruct.Checked = true; return true;
-                    case Keys.F: freeze.Checked = true; return true;
-                    case Keys.T: thaw.Checked = true; return true;
+                    case Keys.P: SelectTool(push); return true;
+                    case Keys.L: SelectTool(twistleft); return true;
+                    case Keys.R: SelectTool(twistright); return true;
+                    case Keys.B: SelectTool(bloat); return true;
+                    case Keys.S: SelectTool(pucker); return true;
+                    case Keys.E: SelectTool(reconstruct); return true;
+                    case Keys.F: SelectTool(freeze); return true;
+                    case Keys.T: SelectTool(thaw); return true;
+
+                    case Keys.H:
+                        SetPanMode(!canvas.PanMode);
+                        return true;
 
                     case Keys.M:
                         showMask.Checked = !showMask.Checked;
@@ -570,6 +579,32 @@ namespace pyrochild.effects.liquify
             }
 
             return result;
+        }
+
+        // A hand tool: left-drag pans, with no key held (see CanvasPanel.PanMode). It can be switched
+        // on with the mouse alone, from the toolbar, because some laptops drop clicks that come while
+        // or just after a key is pressed.
+        private void SetPanMode(bool pan)
+        {
+            canvas.PanMode = pan;
+            panTool.Checked = pan;
+        }
+
+        private void panTool_Click(object sender, EventArgs e)
+        {
+            SetPanMode(panTool.Checked);
+        }
+
+        // Picking a tool, by key or by clicking it, also leaves pan mode.
+        private void SelectTool(RadioButton tool)
+        {
+            SetPanMode(false);
+            tool.Checked = true;
+        }
+
+        private void toolRadioButton_Click(object sender, EventArgs e)
+        {
+            SetPanMode(false);
         }
 
         private void toolRadioButton_CheckedChanged(object sender, EventArgs e)

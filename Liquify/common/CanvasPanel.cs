@@ -446,7 +446,7 @@ namespace pyrochild.effects.common
                     g.Restore(state);
                 }
 
-                if (panelhasmouse && !panning && !spaceHeld)
+                if (panelhasmouse && !panning && !spaceHeld && !panMode)
                 {
                     int scaledbrushradius = (int)(brushRadius * scale);
                     int left = (int)canvasmouselocation.X - scaledbrushradius - 1 + canvasBounds.X;
@@ -894,6 +894,30 @@ namespace pyrochild.effects.common
 
         private const int VK_SPACE = 0x20;
 
+        private bool panMode;
+
+        /// <summary>
+        /// While set, dragging with the left button pans instead of raising canvas mouse events, with
+        /// no key held. Some laptops ignore their touchpad and its buttons while a key is down, which
+        /// makes space-drag impossible on them.
+        /// </summary>
+        public bool PanMode
+        {
+            get
+            {
+                return panMode;
+            }
+            set
+            {
+                if (panMode != value)
+                {
+                    InvalidateBrush();
+                    panMode = value;
+                    UpdatePanCursor();
+                }
+            }
+        }
+
         private bool panning;
         private MouseButtons panButton;
         private Point panStartMouse;
@@ -909,7 +933,7 @@ namespace pyrochild.effects.common
 
             // either view of the keyboard will do: the state as of the message being handled, or right now
             bool spaceDown = GetKeyState(VK_SPACE) < 0 || GetAsyncKeyState(VK_SPACE) < 0;
-            bool pan = button == MouseButtons.Middle || (button == MouseButtons.Left && spaceDown);
+            bool pan = button == MouseButtons.Middle || (button == MouseButtons.Left && (panMode || spaceDown));
 
 
             if (!pan)
@@ -1033,7 +1057,7 @@ namespace pyrochild.effects.common
 
         private void UpdatePanCursor()
         {
-            this.Cursor = (panning || spaceHeld) ? Cursors.SizeAll : Cursors.Default;
+            this.Cursor = (panning || spaceHeld || panMode) ? Cursors.SizeAll : Cursors.Default;
         }
 
         private void ContinuePan()

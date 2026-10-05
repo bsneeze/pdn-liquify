@@ -102,6 +102,7 @@
     <EmbeddedResource Include="images\colorwheel.png" />
     <EmbeddedResource Include="images\clearmask.png" />
     <EmbeddedResource Include="images\invertmask.png" />
+    <EmbeddedResource Include="images\pan.png" />
     <EmbeddedResource Include="images\resetall.png" />
     <EmbeddedResource Include="images\showmask.png" />
   </ItemGroup>

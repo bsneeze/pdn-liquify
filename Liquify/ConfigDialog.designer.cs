@@ -59,6 +59,7 @@ namespace pyrochild.effects.liquify
             this.save = new System.Windows.Forms.Button();
             this.toolStripSeparator3 = new System.Windows.Forms.ToolStripSeparator();
             this.showMask = new System.Windows.Forms.ToolStripButton();
+            this.panTool = new System.Windows.Forms.ToolStripButton();
             this.meshSmall = new System.Windows.Forms.ToolStripButton();
             this.meshLarge = new System.Windows.Forms.ToolStripButton();
             this.settingStrip = new DoubleBufferedToolStrip();
@@ -271,6 +272,7 @@ namespace pyrochild.effects.liquify
             this.zoomOut,
             this.zoom,
             this.zoomIn,
+            this.panTool,
             this.toolStripSeparator3,
             this.showMask,
             this.meshSmall,
@@ -390,6 +392,15 @@ namespace pyrochild.effects.liquify
             // 
             this.toolStripSeparator3.Name = "toolStripSeparator3";
             this.toolStripSeparator3.Size = new System.Drawing.Size(6, 25);
+            // 
+            // panTool
+            // 
+            this.panTool.CheckOnClick = true;
+            this.panTool.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.panTool.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this.panTool.Name = "panTool";
+            this.panTool.Size = new System.Drawing.Size(23, 22);
+            this.panTool.Click += new System.EventHandler(this.panTool_Click);
             // 
             // showMask
             // 
@@ -561,6 +572,7 @@ namespace pyrochild.effects.liquify
         private ToolStripSeparator toolStripSeparator3;
         private Button resetAll;
         private ToolStripButton showMask;
+        private ToolStripButton panTool;
         private ToolStripButton meshSmall;
         private ToolStripButton meshLarge;
     }
