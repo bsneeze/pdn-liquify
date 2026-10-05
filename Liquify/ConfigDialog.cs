@@ -46,6 +46,9 @@ namespace pyrochild.effects.liquify
         // set once the dialog is closing; the render thread's callbacks check it and back off
         private volatile bool closing;
 
+        // true from Load until the dialog has been shown; see the constructor
+        private bool fitZoomPending;
+
         private float DpiScale
         {
             get { return this.DeviceDpi / 96f; }
@@ -74,6 +77,21 @@ namespace pyrochild.effects.liquify
             this.Load += (themeSender, themeArgs) => ThemeHelper.Apply(this);
             this.Shown += (themeSender, themeArgs) => ThemeHelper.Apply(this);
 
+            // The window gets its final size (and may be maximized) after Load, so keep fitting the
+            // image as the canvas resizes until the dialog has been shown. That way the first thing
+            // drawn is already at the right zoom.
+            canvas.Resize += (resizeSender, resizeArgs) =>
+            {
+                if (fitZoomPending)
+                {
+                    canvas.ZoomToFit();
+                }
+            };
+            this.Shown += (shownSender, shownArgs) =>
+            {
+                canvas.ZoomToFit();
+                fitZoomPending = false;
+            };
             this.Text = Liquify.StaticDialogName;
 
             float dpiScale = DpiScale;
@@ -230,6 +248,17 @@ namespace pyrochild.effects.liquify
         private void canvas_ZoomFactorChanged(object sender, EventArgs e)
         {
             zoom.SelectedItem = string.Format("{0}%", canvas.ZoomFactor * 100);
+        }
+
+        // Space is the pan key (see CanvasPanel), so don't let it press whichever button has focus.
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.Space && !brushSize.Focused && !zoom.Focused)
+            {
+                return true;
+            }
+
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         void renderer_MouseUp(object sender, QueuedToolEventArgs e)
@@ -408,6 +437,9 @@ namespace pyrochild.effects.liquify
             historystack = new HistoryStack(mesh);
 
             InitializeRenderer();
+
+            fitZoomPending = true;
+            canvas.ZoomToFit();
 
             this.DesktopLocation = Owner.PointToScreen(new Point(0, 30));
             this.Size = new Size(Owner.ClientSize.Width, Owner.ClientSize.Height - 30);

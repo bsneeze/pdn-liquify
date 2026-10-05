@@ -292,7 +292,7 @@ namespace pyrochild.effects.common
                     g.Restore(state);
                 }
 
-                if (panelhasmouse)
+                if (panelhasmouse && !panning && !spaceHeld)
                 {
                     int scaledbrushradius = (int)(brushRadius * scale);
                     g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -703,6 +703,133 @@ namespace pyrochild.effects.common
             OnCanvasMouseHold(buttons, canvasmouselocation.X, canvasmouselocation.Y);
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetKeyState(int virtualKey);
+
+        private const int VK_SPACE = 0x20;
+
+        private bool panning;
+        private MouseButtons panButton;
+        private Point panStartMouse;
+        private Point panStartScroll;
+
+        // Dragging with the middle button, or with the left button while space is held, scrolls the view.
+        private bool BeginPan(MouseButtons button)
+        {
+            if (panning)
+            {
+                return true;
+            }
+
+            if (button != MouseButtons.Middle && !(button == MouseButtons.Left && GetKeyState(VK_SPACE) < 0))
+            {
+                return false;
+            }
+
+            InvalidateBrush(); // the brush circle is hidden while panning
+            panning = true;
+            panButton = button;
+            panStartMouse = Cursor.Position;
+            panStartScroll = ScrollPosition;
+            UpdatePanCursor();
+            return true;
+        }
+
+        // While space is held the panel is ready to pan: it shows the pan cursor instead of the brush
+        // circle, before any dragging starts. This control never has keyboard focus, so it watches
+        // for the key with a message filter.
+        private bool spaceHeld;
+        private SpaceKeyFilter spaceKeyFilter;
+
+        private sealed class SpaceKeyFilter : IMessageFilter
+        {
+            private const int WM_KEYDOWN = 0x0100;
+            private const int WM_KEYUP = 0x0101;
+
+            private readonly CanvasPanel owner;
+
+            public SpaceKeyFilter(CanvasPanel owner)
+            {
+                this.owner = owner;
+            }
+
+            public bool PreFilterMessage(ref Message m)
+            {
+                if ((m.Msg == WM_KEYDOWN || m.Msg == WM_KEYUP) && (int)m.WParam == VK_SPACE)
+                {
+                    bool down = m.Msg == WM_KEYDOWN;
+
+                    // a space typed into a text field is just a space
+                    Control target = down ? Control.FromChildHandle(m.HWnd) : null;
+                    if (!(target is TextBoxBase || target is ComboBox))
+                    {
+                        owner.SetSpaceHeld(down);
+                    }
+                }
+
+                // only watching: the message carries on as usual
+                return false;
+            }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+
+            if (spaceKeyFilter == null)
+            {
+                spaceKeyFilter = new SpaceKeyFilter(this);
+                Application.AddMessageFilter(spaceKeyFilter);
+            }
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            if (spaceKeyFilter != null)
+            {
+                Application.RemoveMessageFilter(spaceKeyFilter);
+                spaceKeyFilter = null;
+            }
+
+            base.OnHandleDestroyed(e);
+        }
+
+        private void SetSpaceHeld(bool held)
+        {
+            if (spaceHeld == held)
+            {
+                return;
+            }
+
+            InvalidateBrush();
+            spaceHeld = held;
+            UpdatePanCursor();
+        }
+
+        private void UpdatePanCursor()
+        {
+            this.Cursor = (panning || spaceHeld) ? Cursors.SizeAll : Cursors.Default;
+        }
+
+        private void ContinuePan()
+        {
+            Point mouse = Cursor.Position;
+            ScrollPosition = new Point(
+                panStartScroll.X - (mouse.X - panStartMouse.X),
+                panStartScroll.Y - (mouse.Y - panStartMouse.Y));
+            AfterScroll();
+        }
+
+        private void EndPan(MouseButtons button)
+        {
+            if (button == panButton)
+            {
+                panning = false;
+                UpdatePanCursor();
+                SyncBrushToMouse();
+            }
+        }
+
         // The picture moves under the mouse when it scrolls, so work out again where on the canvas the
         // mouse is and put the brush circle there.
         private void SyncBrushToMouse()
@@ -725,12 +852,45 @@ namespace pyrochild.effects.common
         // drag the view would lag behind; Update() repaints right away.
         private void AfterScroll()
         {
-            SyncBrushToMouse();
+            if (!panning)
+            {
+                SyncBrushToMouse();
+            }
             Update();
+        }
+
+        /// <summary>
+        /// Picks the largest zoom level, up to 100%, that shows the whole image.
+        /// </summary>
+        public void ZoomToFit()
+        {
+            if (surface == null)
+            {
+                return;
+            }
+
+            int margin = (int)Math.Ceiling(12 * this.DeviceDpi / 96f);
+            float fit = Math.Min(
+                (this.Width - 2 * margin) / (float)surface.Width,
+                (this.Height - 2 * margin) / (float)surface.Height);
+
+            float best = ZoomFactors[0];
+            foreach (float factor in ZoomFactors)
+            {
+                if (factor <= fit && factor <= 1)
+                {
+                    best = factor;
+                }
+            }
+
+            ZoomFactor = best;
         }
 
         private void CanvasPanel_MouseDown(object sender, MouseEventArgs e)
         {
+            if (BeginPan(e.Button))
+                return;
+
             Point location = CanvasLocation;
 
             if (e.Button == MouseButtons.Right)
@@ -827,6 +987,12 @@ namespace pyrochild.effects.common
 
         private void CanvasPanel_MouseMove(object sender, MouseEventArgs e)
         {
+            if (panning)
+            {
+                ContinuePan();
+                return;
+            }
+
             Rectangle canvasBounds = CanvasBounds;
             canvashasmouse = canvasBounds.Contains(e.Location);
             OnCanvasMouseMove(e.Button, e.X - canvasBounds.X, e.Y - canvasBounds.Y);
@@ -834,6 +1000,12 @@ namespace pyrochild.effects.common
 
         private void CanvasPanel_MouseUp(object sender, MouseEventArgs e)
         {
+            if (panning)
+            {
+                EndPan(e.Button);
+                return;
+            }
+
             Point location = CanvasLocation;
             OnCanvasMouseUp(e.Button, e.X - location.X, e.Y - location.Y);
         }
@@ -859,6 +1031,9 @@ namespace pyrochild.effects.common
         private void CanvasPanel_MouseEnter(object sender, System.EventArgs e)
         {
             panelhasmouse = true;
+
+            // a key release can be missed while another window has focus, so check the real state
+            SetSpaceHeld(GetKeyState(VK_SPACE) < 0);
         }
 
         private void CanvasPanel_Resize(object sender, System.EventArgs e)
