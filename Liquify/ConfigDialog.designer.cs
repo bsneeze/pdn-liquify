@@ -54,6 +54,9 @@ namespace pyrochild.effects.liquify
             this.thaw = new System.Windows.Forms.RadioButton();
             this.load = new System.Windows.Forms.Button();
             this.save = new System.Windows.Forms.Button();
+            this.toolStripSeparator3 = new System.Windows.Forms.ToolStripSeparator();
+            this.meshSmall = new System.Windows.Forms.ToolStripButton();
+            this.meshLarge = new System.Windows.Forms.ToolStripButton();
             this.settingStrip = new DoubleBufferedToolStrip();
             this.brushSizeSeparator = new System.Windows.Forms.ToolStripSeparator();
             this.brushSizeLabel = new System.Windows.Forms.ToolStripLabel();
@@ -230,7 +233,10 @@ namespace pyrochild.effects.liquify
             this.toolStripSeparator2,
             this.zoomOut,
             this.zoom,
-            this.zoomIn});
+            this.zoomIn,
+            this.toolStripSeparator3,
+            this.meshSmall,
+            this.meshLarge});
             this.settingStrip.Location = new System.Drawing.Point(0, 0);
             this.settingStrip.Name = "settingStrip";
             this.settingStrip.Size = new System.Drawing.Size(624, 25);
@@ -341,6 +347,29 @@ namespace pyrochild.effects.liquify
             this.zoomIn.Name = "zoomIn";
             this.zoomIn.Size = new System.Drawing.Size(23, 22);
             this.zoomIn.Click += new System.EventHandler(this.zoomIn_Click);
+            // 
+            // toolStripSeparator3
+            // 
+            this.toolStripSeparator3.Name = "toolStripSeparator3";
+            this.toolStripSeparator3.Size = new System.Drawing.Size(6, 25);
+            // 
+            // meshSmall
+            // 
+            this.meshSmall.CheckOnClick = true;
+            this.meshSmall.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.meshSmall.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this.meshSmall.Name = "meshSmall";
+            this.meshSmall.Size = new System.Drawing.Size(23, 22);
+            this.meshSmall.Click += new System.EventHandler(this.mesh_Click);
+            // 
+            // meshLarge
+            // 
+            this.meshLarge.CheckOnClick = true;
+            this.meshLarge.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.meshLarge.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this.meshLarge.Name = "meshLarge";
+            this.meshLarge.Size = new System.Drawing.Size(23, 22);
+            this.meshLarge.Click += new System.EventHandler(this.mesh_Click);
             // 
             // panel1
             // 
@@ -477,5 +506,8 @@ namespace pyrochild.effects.liquify
         private ToolStripButton zoomIn;
         private RadioButton freeze;
         private RadioButton thaw;
+        private ToolStripSeparator toolStripSeparator3;
+        private ToolStripButton meshSmall;
+        private ToolStripButton meshLarge;
     }
 }

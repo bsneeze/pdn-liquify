@@ -49,6 +49,10 @@ namespace pyrochild.effects.liquify
         // true from Load until the dialog has been shown; see the constructor
         private bool fitZoomPending;
 
+        // mesh grid overlay, in image pixels; a spacing of 0 means it is off
+        private int gridSpacing;
+        private float gridLineWidth;
+
         private float DpiScale
         {
             get { return this.DeviceDpi / 96f; }
@@ -177,7 +181,15 @@ namespace pyrochild.effects.liquify
             redo.Image = new Bitmap(t, "images.redo.png");
             zoomIn.Image = new Bitmap(t, "images.zoomin.png");
             zoomOut.Image = new Bitmap(t, "images.zoomout.png");
+            meshSmall.Image = new Bitmap(t, "images.gridsmall.png");
+            meshLarge.Image = new Bitmap(t, "images.gridlarge.png");
 
+            if (PdnBaseForm.IsAppThemeDark)
+            {
+                // these two are plain black line drawings, which disappear on a dark toolbar
+                meshSmall.Image = ThemeHelper.Inverted(meshSmall.Image);
+                meshLarge.Image = ThemeHelper.Inverted(meshLarge.Image);
+            }
             freeze.Image = LoadIcon(t, "images.freeze.png", dpiScale);
             thaw.Image = LoadIcon(t, "images.thaw.png", dpiScale);
         }
@@ -218,6 +230,8 @@ namespace pyrochild.effects.liquify
             tooltip.SetToolTip(load, "Load mesh");
             tooltip.SetToolTip(freeze, "Freeze");
             tooltip.SetToolTip(thaw, "Thaw");
+            meshSmall.ToolTipText = "Show mesh (fine)";
+            meshLarge.ToolTipText = "Show mesh (coarse)";
             undo.ToolTipText= "Undo";
             redo.ToolTipText= "Redo";
             brushSizeIncrement.ToolTipText = "Increase brush size";
@@ -249,8 +263,54 @@ namespace pyrochild.effects.liquify
         private void canvas_ZoomFactorChanged(object sender, EventArgs e)
         {
             zoom.SelectedItem = string.Format("{0}%", canvas.ZoomFactor * 100);
+            UpdateGrid();
         }
 
+        // Everything that draws the preview goes through here, so the mask tint and mesh grid stay consistent.
+        private void RenderPreview(Rectangle rect)
+        {
+            mesh.Render(surface, source, rect, ColorBgra.Red, gridSpacing, gridLineWidth);
+        }
+
+        private void UpdateGrid()
+        {
+            float screenSpacing = meshSmall.Checked ? 16 : meshLarge.Checked ? 64 : 0;
+            screenSpacing *= DpiScale;
+
+            // The grid is drawn into the preview, which is at image resolution, so size it by the zoom
+            // to keep it looking the same on screen.
+            int spacing = screenSpacing == 0 ? 0 : Math.Max(4, (int)Math.Round(screenSpacing / canvas.ZoomFactor));
+            float lineWidth = Math.Max(1f, 1f / canvas.ZoomFactor);
+
+            if (spacing == gridSpacing && (spacing == 0 || lineWidth == gridLineWidth))
+            {
+                return;
+            }
+
+            gridSpacing = spacing;
+            gridLineWidth = lineWidth;
+
+            if (mesh != null)
+            {
+                RenderPreview(source.Bounds);
+                canvas.InvalidateCanvas();
+            }
+        }
+
+        private void mesh_Click(object sender, EventArgs e)
+        {
+            // the two sizes are alternatives: turning one on turns the other off
+            if (sender == meshSmall && meshSmall.Checked)
+            {
+                meshLarge.Checked = false;
+            }
+            else if (sender == meshLarge && meshLarge.Checked)
+            {
+                meshSmall.Checked = false;
+            }
+
+            UpdateGrid();
+        }
         // Space is the pan key (see CanvasPanel), so don't let it press whichever button has focus.
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
@@ -361,7 +421,7 @@ namespace pyrochild.effects.liquify
                 return;
             }
 
-            mesh.Render(surface, source, e.InvalidRect, ColorBgra.Red);
+            RenderPreview(e.InvalidRect);
             canvas.InvalidateCanvas(e.InvalidRect);
         }
 
@@ -552,7 +612,7 @@ namespace pyrochild.effects.liquify
             {
                 Rectangle rect = historystack.StepBack(mesh);
                 UpdateHistoryButtons();
-                mesh.Render(surface, source, rect, ColorBgra.Red);
+                RenderPreview(rect);
                 canvas.InvalidateCanvas(rect);
             }
         }
@@ -563,7 +623,7 @@ namespace pyrochild.effects.liquify
             {
                 Rectangle rect = historystack.StepForward(mesh);
                 UpdateHistoryButtons();
-                mesh.Render(surface, source, rect, ColorBgra.Red);
+                RenderPreview(rect);
                 canvas.InvalidateCanvas(rect);
             }
         }
@@ -724,7 +784,7 @@ namespace pyrochild.effects.liquify
                 {
                     FileStream fs = new FileStream(ofd.FileName, FileMode.Open);
                     mesh.Load(fs);
-                    mesh.Render(surface, source, surface.Bounds, ColorBgra.Red);
+                    RenderPreview(surface.Bounds);
                     canvas.InvalidateCanvas();
 
                     // a loaded mesh is an edit like any other, so it can be undone

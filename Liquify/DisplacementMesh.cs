@@ -146,11 +146,24 @@ namespace pyrochild.effects.liquify
             }
         }
 
-        public unsafe void Render(ISurface<ColorBgra> dst, ISurface<ColorBgra> src, Rectangle rect, ColorBgra maskcolor)
+        public void Render(ISurface<ColorBgra> dst, ISurface<ColorBgra> src, Rectangle rect, ColorBgra maskcolor)
+        {
+            Render(dst, src, rect, maskcolor, 0, 0);
+        }
+
+        /// <summary>
+        /// Renders with the mask tinted and, if gridSpacing is above zero, a grid drawn over the image.
+        /// The grid is laid out on the source image, so it is distorted along with it.
+        /// </summary>
+        /// <param name="gridSpacing">distance between grid lines in source pixels, 0 for no grid</param>
+        /// <param name="gridLineWidth">width of the grid lines in source pixels</param>
+        public unsafe void Render(ISurface<ColorBgra> dst, ISurface<ColorBgra> src, Rectangle rect, ColorBgra maskcolor, int gridSpacing, float gridLineWidth)
         {
             UserBlendOp blendop = new UserBlendOps.NormalBlendOp();
 
             if (rect.Width == 0) return;
+
+            float halfLine = gridLineWidth / 2;
 
             ForEachRow(rect, y =>
             {
@@ -160,8 +173,30 @@ namespace pyrochild.effects.liquify
                 for (int x = rect.Left; x < rect.Right; ++x)
                 {
                     ColorBgra mc = maskcolor.NewAlpha((byte)(maskcolor.A * offset->Mask / 510));
+                    float srcx = x + offset->X;
+                    float srcy = y + offset->Y;
 
-                    *dstPixel = blendop.Apply(src.GetBilinearSample(x + offset->X, y + offset->Y), mc);
+                    ColorBgra c = blendop.Apply(src.GetBilinearSample(srcx, srcy), mc);
+
+                    if (gridSpacing > 0)
+                    {
+                        float fx = srcx - MathF.Floor(srcx / gridSpacing) * gridSpacing;
+                        float fy = srcy - MathF.Floor(srcy / gridSpacing) * gridSpacing;
+                        float distance = Math.Min(Math.Min(fx, gridSpacing - fx), Math.Min(fy, gridSpacing - fy));
+
+                        if (distance <= halfLine)
+                        {
+                            // lighten dark pixels and darken light ones, so the line shows on anything
+                            int target = (c.R * 2 + c.G * 5 + c.B) / 8 < 128 ? 255 : 0;
+                            c = ColorBgra.FromBgra(
+                                (byte)((c.B + target) / 2),
+                                (byte)((c.G + target) / 2),
+                                (byte)((c.R + target) / 2),
+                                (byte)((c.A + 255) / 2));
+                        }
+                    }
+
+                    *dstPixel = c;
                     ++offset;
                     ++dstPixel;
                 }
