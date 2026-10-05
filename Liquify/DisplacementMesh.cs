@@ -216,6 +216,29 @@ namespace pyrochild.effects.liquify
             }
         }
 
+        /// <summary>
+        /// Writes the mesh memory as-is, Mask included. Unlike Save, this is not the .msh format
+        /// and it leaves the stream open.
+        /// </summary>
+        internal unsafe void SaveRaw(Stream s)
+        {
+            for (int y = 0; y < height; ++y)
+            {
+                s.Write(new ReadOnlySpan<byte>(GetPointAddressUnchecked(0, y), stride));
+            }
+        }
+
+        /// <summary>
+        /// Reads back what SaveRaw wrote from a mesh of the same size.
+        /// </summary>
+        internal unsafe void LoadRaw(Stream s)
+        {
+            for (int y = 0; y < height; ++y)
+            {
+                s.ReadExactly(new Span<byte>(GetPointAddressUnchecked(0, y), stride));
+            }
+        }
+
         public void Load(Stream s)
         {
             using (BinaryReader br = new BinaryReader(s))
@@ -231,12 +254,29 @@ namespace pyrochild.effects.liquify
                     DisplacementMesh loaded = new DisplacementMesh(size);
                     loaded.LoadData(br);
 
-                    this.Dispose(true); // safe to toss our own data at this point
-
                     DisplacementMesh resized = loaded.Resize(this.Size);
                     loaded.Dispose();
 
-                    this.scan0 = resized.scan0;
+                    // only take the offsets, so Mask is left alone just like in a same-size load
+                    CopyOffsets(resized);
+                    resized.Dispose();
+                }
+            }
+        }
+
+        private unsafe void CopyOffsets(DisplacementMesh srcMesh)
+        {
+            for (int y = 0; y < height; ++y)
+            {
+                DisplacementVector*
+                    src = srcMesh.GetPointAddressUnchecked(0, y),
+                    dst = this.GetPointAddressUnchecked(0, y);
+                for (int x = 0; x < width; ++x)
+                {
+                    dst->X = src->X;
+                    dst->Y = src->Y;
+                    ++src;
+                    ++dst;
                 }
             }
         }

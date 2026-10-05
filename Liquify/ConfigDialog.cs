@@ -361,7 +361,7 @@ namespace pyrochild.effects.liquify
 
             mesh = new DisplacementMesh(source.Size);
             mesh.Render(surface, source, source.Bounds);
-            historystack = new HistoryStack(mesh, false);
+            historystack = new HistoryStack(mesh);
 
             InitializeRenderer();
 
@@ -450,10 +450,10 @@ namespace pyrochild.effects.liquify
         {
             if (historystack.CanStepBack)
             {
-                historystack.StepBack(mesh);
+                Rectangle rect = historystack.StepBack(mesh);
                 UpdateHistoryButtons(false);
-                mesh.Render(surface, source, source.Bounds, ColorBgra.Red);
-                canvas.Invalidate();
+                mesh.Render(surface, source, rect, ColorBgra.Red);
+                canvas.InvalidateCanvas(rect);
             }
         }
 
@@ -461,10 +461,10 @@ namespace pyrochild.effects.liquify
         {
             if (historystack.CanStepForward)
             {
-                historystack.StepForward(mesh);
+                Rectangle rect = historystack.StepForward(mesh);
                 UpdateHistoryButtons(false);
-                mesh.Render(surface, source, source.Bounds, ColorBgra.Red);
-                canvas.Invalidate();
+                mesh.Render(surface, source, rect, ColorBgra.Red);
+                canvas.InvalidateCanvas(rect);
             }
         }
 
@@ -633,8 +633,12 @@ namespace pyrochild.effects.liquify
                 {
                     FileStream fs = new FileStream(ofd.FileName, FileMode.Open);
                     mesh.Load(fs);
-                    mesh.Render(surface, source, surface.Bounds);
+                    mesh.Render(surface, source, surface.Bounds, ColorBgra.Red);
                     canvas.InvalidateCanvas();
+
+                    // a loaded mesh is an edit like any other, so it can be undone
+                    historystack.AddHistoryItem(mesh, mesh.Bounds);
+                    UpdateHistoryButtons(false);
                 }
                 catch (Exception exception)
                 {

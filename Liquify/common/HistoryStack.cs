@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -8,50 +8,46 @@ namespace pyrochild.effects.liquify
     public class HistoryStack : IDisposable
     {
         List<HistoryItem> stack;
-        int step;
+        int step; // index of the last applied item, -1 if there is none
         bool errornotified;
 
-        public HistoryStack(DisplacementMesh mesh, bool localcopy)
+        // The mesh as of the current history step. A stroke's rect is only known once it has finished,
+        // so this is where the "before" half of its history item comes from.
+        DisplacementMesh committed;
+
+        public HistoryStack(DisplacementMesh mesh)
         {
             stack = new List<HistoryItem>();
             step = -1;
-            if (localcopy)
-            {
-                AddHistoryItem(mesh, mesh.Bounds);
-            }
-            else
-            {
-                AddHistoryItem(mesh);
-            }
+            committed = mesh.Clone();
         }
 
-        public void AddHistoryItem(DisplacementMesh mesh)
+        private void RemoveRedoItems()
         {
-            try
+            if (step < stack.Count - 1)
             {
-                if (step < stack.Count - 1)
+                for (int i = step + 1; i < stack.Count; i++)
                 {
-                    stack.RemoveRange(step + 1, stack.Count - 1 - step);
+                    stack[i].Dispose();
                 }
-                stack.Add(new HistoryItem(mesh));
-                step++;
-            }
-            catch (Exception ex)
-            {
-                OnError(ex);
+                stack.RemoveRange(step + 1, stack.Count - 1 - step);
             }
         }
 
         public void AddHistoryItem(DisplacementMesh mesh, Rectangle bounds)
         {
+            Rectangle rect = Rectangle.Intersect(mesh.Bounds, bounds);
+            if (rect.Width <= 0 || rect.Height <= 0)
+            {
+                return;
+            }
+
             try
             {
-                if (step < stack.Count - 1)
-                {
-                    stack.RemoveRange(step + 1, stack.Count - 1 - step);
-                }
-                stack.Add(new HistoryItem(mesh, bounds));
+                RemoveRedoItems();
+                stack.Add(new HistoryItem(committed, mesh, rect));
                 step++;
+                committed.Copy(mesh, rect.Location, rect);
             }
             catch (Exception ex)
             {
@@ -72,7 +68,7 @@ namespace pyrochild.effects.liquify
 
         public bool CanStepBack
         {
-            get { return step > 0; }
+            get { return step >= 0; }
         }
 
         public bool CanStepForward
@@ -80,32 +76,40 @@ namespace pyrochild.effects.liquify
             get { return step < stack.Count - 1; }
         }
 
-        public void StepBack(DisplacementMesh surface)
+        /// <returns>The rect of the mesh that was changed</returns>
+        public Rectangle StepBack(DisplacementMesh surface)
         {
-            if (CanStepBack)
+            if (!CanStepBack)
             {
-                step--;
-                for (int i = 0; i <= step; i++)
-                {
-                    stack[i].DeltaSurface.ToMemory();
-                    surface.Copy(stack[i].DeltaSurface.Surface, stack[i].DeltaRect.Location, stack[i].DeltaSurface.Bounds);
-                    stack[i].DeltaSurface.ToDisk();
-                }
+                return Rectangle.Empty;
             }
+
+            HistoryItem item = stack[step];
+            Apply(item.Before, item.DeltaRect, surface);
+            step--;
+            return item.DeltaRect;
         }
 
-        public void StepForward(DisplacementMesh surface)
+        /// <returns>The rect of the mesh that was changed</returns>
+        public Rectangle StepForward(DisplacementMesh surface)
         {
-            if (CanStepForward)
+            if (!CanStepForward)
             {
-                step++;
-                for (int i = 0; i <= step; i++)
-                {
-                    stack[i].DeltaSurface.ToMemory();
-                    surface.Copy(stack[i].DeltaSurface.Surface, stack[i].DeltaRect.Location, stack[i].DeltaSurface.Bounds);
-                    stack[i].DeltaSurface.ToDisk();
-                }
+                return Rectangle.Empty;
             }
+
+            step++;
+            HistoryItem item = stack[step];
+            Apply(item.After, item.DeltaRect, surface);
+            return item.DeltaRect;
+        }
+
+        private void Apply(DiskBackedSurface delta, Rectangle rect, DisplacementMesh surface)
+        {
+            delta.ToMemory();
+            surface.Copy(delta.Surface, rect.Location, delta.Bounds);
+            committed.Copy(delta.Surface, rect.Location, delta.Bounds);
+            delta.ToDisk();
         }
 
         #region IDisposable Members
@@ -114,9 +118,10 @@ namespace pyrochild.effects.liquify
         {
             foreach (HistoryItem hi in stack)
             {
-                hi.DeltaSurface.Dispose();
+                hi.Dispose();
             }
             stack.Clear();
+            committed.Dispose();
         }
 
         #endregion

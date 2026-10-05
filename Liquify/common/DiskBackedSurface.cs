@@ -23,6 +23,7 @@ namespace pyrochild.effects.liquify
     {
         private string backingfile;
         private State state;
+        private bool written;
         private DisplacementMesh surface;
         private int width;
         private int height;
@@ -76,7 +77,7 @@ namespace pyrochild.effects.liquify
             try
             {
                 DisplacementMesh loaded = new DisplacementMesh(width, height);
-                loaded.Load(fs);
+                loaded.LoadRaw(fs);
                 surface = loaded;
                 state = State.Memory;
             }
@@ -101,18 +102,18 @@ namespace pyrochild.effects.liquify
         {
             if (state == State.Disk) { return; }
 
-            FileStream fs = new FileStream(backingfile, FileMode.Create);
-            try
+            // the surface isn't modified once it has been written, so the file only needs writing once
+            if (!written)
             {
-                surface.Save(fs);
-                state = State.Disk;
+                using (FileStream fs = new FileStream(backingfile, FileMode.Create))
+                {
+                    surface.SaveRaw(fs);
+                }
+                written = true;
             }
-            catch (ThreadAbortException) { }
-            finally
-            {
-                fs.Close();
-                surface.Dispose();
-            }
+
+            surface.Dispose();
+            state = State.Disk;
         }
 
         public bool TryToDisk()
