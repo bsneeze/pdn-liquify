@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Threading.Tasks;
 
 namespace pyrochild.effects.liquify
 {
@@ -15,18 +16,28 @@ namespace pyrochild.effects.liquify
         public HistoryItem(DisplacementMesh before, DisplacementMesh after, Rectangle rect)
         {
             DeltaRect = rect;
-            Before = Capture(before, rect);
-            After = Capture(after, rect);
-        }
 
-        private static DiskBackedSurface Capture(DisplacementMesh mesh, Rectangle rect)
-        {
-            DisplacementMesh temp = new DisplacementMesh(rect.Size);
-            temp.Copy(mesh, Point.Empty, rect);
+            // the two halves are independent, so write them side by side
+            Task<DiskBackedSurface> beforeTask = Task.Run(() => DiskBackedSurface.FromRect(before, rect));
+            try
+            {
+                After = DiskBackedSurface.FromRect(after, rect);
+            }
+            catch
+            {
+                try { beforeTask.Result.Dispose(); } catch { }
+                throw;
+            }
 
-            DiskBackedSurface ret = new DiskBackedSurface(temp, true);
-            ret.ToDisk();
-            return ret;
+            try
+            {
+                Before = beforeTask.Result;
+            }
+            catch
+            {
+                After.Dispose();
+                throw;
+            }
         }
 
         public void Dispose()

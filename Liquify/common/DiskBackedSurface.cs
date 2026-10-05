@@ -61,6 +61,39 @@ namespace pyrochild.effects.liquify
             Initialize();
         }
 
+        private DiskBackedSurface()
+        {
+        }
+
+        /// <summary>
+        /// Writes a part of a mesh straight to disk, without making an in-memory copy of it first.
+        /// </summary>
+        public static DiskBackedSurface FromRect(DisplacementMesh mesh, Rectangle rect)
+        {
+            DiskBackedSurface ret = new DiskBackedSurface();
+            ret.width = rect.Width;
+            ret.height = rect.Height;
+            ret.backingfile = Path.GetTempFileName();
+
+            try
+            {
+                using (FileStream fs = new FileStream(ret.backingfile, FileMode.Create))
+                using (DeflateStream ds = new DeflateStream(fs, CompressionLevel.Fastest))
+                {
+                    mesh.SaveRaw(ds, rect);
+                }
+            }
+            catch
+            {
+                File.Delete(ret.backingfile);
+                throw;
+            }
+
+            ret.written = true;
+            ret.state = State.Disk;
+            return ret;
+        }
+
         public string BackingFilePath { get { return backingfile; } }
         public DisplacementMesh Surface { get { return surface; } }
         public int Width { get { return width; } }
@@ -73,18 +106,13 @@ namespace pyrochild.effects.liquify
         {
             if (state == State.Memory) { return; }
 
-            FileStream fs = new FileStream(backingfile, FileMode.Open, FileAccess.Read);
-            try
+            using (FileStream fs = new FileStream(backingfile, FileMode.Open, FileAccess.Read))
+            using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
             {
                 DisplacementMesh loaded = new DisplacementMesh(width, height);
-                loaded.LoadRaw(fs);
+                loaded.LoadRaw(ds);
                 surface = loaded;
                 state = State.Memory;
-            }
-            catch (ThreadAbortException) { }
-            finally
-            {
-                fs.Close();
             }
         }
 
@@ -105,9 +133,11 @@ namespace pyrochild.effects.liquify
             // the surface isn't modified once it has been written, so the file only needs writing once
             if (!written)
             {
+                // most of a mesh is zeros or smooth, so even the fastest compression shrinks it a lot
                 using (FileStream fs = new FileStream(backingfile, FileMode.Create))
+                using (DeflateStream ds = new DeflateStream(fs, CompressionLevel.Fastest))
                 {
-                    surface.SaveRaw(fs);
+                    surface.SaveRaw(ds);
                 }
                 written = true;
             }
@@ -131,7 +161,10 @@ namespace pyrochild.effects.liquify
         public void Dispose()
         {
             File.Delete(backingfile);
-            surface.Dispose();
+            if (surface != null)
+            {
+                surface.Dispose();
+            }
             state = State.Disposed;
         }
 

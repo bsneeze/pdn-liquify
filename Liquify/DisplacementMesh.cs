@@ -220,11 +220,21 @@ namespace pyrochild.effects.liquify
         /// Writes the mesh memory as-is, Mask included. Unlike Save, this is not the .msh format
         /// and it leaves the stream open.
         /// </summary>
-        internal unsafe void SaveRaw(Stream s)
+        internal void SaveRaw(Stream s)
         {
-            for (int y = 0; y < height; ++y)
+            SaveRaw(s, Bounds);
+        }
+
+        /// <summary>
+        /// SaveRaw for just a part of the mesh. LoadRaw reads it back into a mesh the size of rect.
+        /// </summary>
+        internal unsafe void SaveRaw(Stream s, Rectangle rect)
+        {
+            int rowBytes = rect.Width * sizeof(DisplacementVector);
+
+            for (int y = rect.Top; y < rect.Bottom; ++y)
             {
-                s.Write(new ReadOnlySpan<byte>(GetPointAddressUnchecked(0, y), stride));
+                s.Write(new ReadOnlySpan<byte>(GetPointAddressUnchecked(rect.Left, y), rowBytes));
             }
         }
 
@@ -376,17 +386,14 @@ namespace pyrochild.effects.liquify
 
         public unsafe void Copy(DisplacementMesh srcMesh, Point dstOffset, Rectangle srcRect)
         {
+            long rowBytes = (long)srcRect.Width * sizeof(DisplacementVector);
+
             for (int y = 0; y < srcRect.Height; ++y)
             {
                 DisplacementVector*
                     src = srcMesh.GetPointAddressUnchecked(srcRect.X, y + srcRect.Y),
                     dst = this.GetPointAddressUnchecked(dstOffset.X, y + dstOffset.Y);
-                for (int x = 0; x < srcRect.Width; ++x)
-                {
-                    *dst = *src;
-                    ++src;
-                    ++dst;
-                }
+                Buffer.MemoryCopy(src, dst, rowBytes, rowBytes);
             }
         }
 
