@@ -701,6 +701,25 @@ namespace pyrochild.effects.liquify
             canvas.PerformMouseWheel(e);
         }
 
+        private const int WM_MOUSEHWHEEL = 0x020E;
+
+        // Sideways wheel and two-finger touchpad scrolling. WinForms has no event for it; it arrives
+        // here when it was sent to a control other than the canvas, which handles its own.
+        protected override void WndProc(ref Message m)
+        {
+
+            if (m.Msg == WM_MOUSEHWHEEL)
+            {
+                canvas.PerformHorizontalMouseWheel(CanvasPanel.WheelDelta(m));
+
+                // not 0: see CanvasPanel.HandleWheelMessage
+                m.Result = (IntPtr)1;
+                return;
+            }
+
+            base.WndProc(ref m);
+        }
+
         protected override void OnKeyPress(KeyPressEventArgs e)
         {
             if (!e.Handled) //hasn't been handled? our turn, then.

@@ -26,7 +26,7 @@ namespace pyrochild.effects.common
     /// used because it scrolls by copying the window's pixels, which at large window sizes was measured
     /// to take about twice as long as repainting the whole view.
     /// </summary>
-    public partial class CanvasPanel : UserControl
+    public partial class CanvasPanel : UserControl, IDarkThemeable
     {
         private const int canvasMargin = 10;
 
@@ -61,15 +61,6 @@ namespace pyrochild.effects.common
             // of the whole panel on every paint.
             this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
 
-            hScroll.Visible = false;
-            vScroll.Visible = false;
-            hScroll.Cursor = Cursors.Default;
-            vScroll.Cursor = Cursors.Default;
-            hScroll.ValueChanged += new EventHandler(scrollBar_ValueChanged);
-            vScroll.ValueChanged += new EventHandler(scrollBar_ValueChanged);
-            this.Controls.Add(hScroll);
-            this.Controls.Add(vScroll);
-
             this.ZoomFactor = 1.0f;
 
             tintbrush = new SolidBrush(Color.FromArgb(63, 0, 0, 0));
@@ -93,11 +84,11 @@ namespace pyrochild.effects.common
             return bmp;
         }
 
-        private readonly HScrollBar hScroll = new HScrollBar();
-        private readonly VScrollBar vScroll = new VScrollBar();
         private Point scrollOffset; // how far the view is scrolled; never negative
-        private Size viewport;      // the client area not covered by the scrollbars
-        private bool syncingScrollbars;
+        private Size viewport;      // the client area; the scrollbars are outside it
+        private bool updatingScrollbars;
+        private bool showHScroll;
+        private bool showVScroll;
 
         // Designers and owners may still set this; it has to stay off for the reason in the class summary.
         public override bool AutoScroll
@@ -123,77 +114,162 @@ namespace pyrochild.effects.common
 
                 if (scrollOffset != old)
                 {
-                    this.Invalidate(new Rectangle(Point.Empty, viewport));
+                    this.Invalidate();
                 }
             }
         }
 
-        // Works out which scrollbars are needed, lays them out, and brings them and scrollOffset
-        // in line with each other.
+        // The scrollbars are the window's own (WS_HSCROLL / WS_VSCROLL), driven directly with
+        // SetScrollInfo. They have to be the standard kind: touchpad drivers that do their own
+        // two-finger scrolling (Synaptics) look for exactly these and send the window WM_HSCROLL and
+        // WM_VSCROLL. With scrollbar child controls instead, such a driver sent nothing at all for a
+        // sideways swipe.
+        private const int SB_HORZ = 0;
+        private const int SB_VERT = 1;
+        private const uint SIF_RANGE = 0x1;
+        private const uint SIF_PAGE = 0x2;
+        private const uint SIF_POS = 0x4;
+        private const uint SIF_TRACKPOS = 0x10;
+        private const int WS_HSCROLL = 0x00100000;
+        private const int WS_VSCROLL = 0x00200000;
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct SCROLLINFO
+        {
+            public uint cbSize;
+            public uint fMask;
+            public int nMin;
+            public int nMax;
+            public uint nPage;
+            public int nPos;
+            public int nTrackPos;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern int SetScrollInfo(IntPtr hWnd, int bar, ref SCROLLINFO info, bool redraw);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetScrollInfo(IntPtr hWnd, int bar, ref SCROLLINFO info);
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                // so the bars survive if WinForms rebuilds the window's styles
+                CreateParams cp = base.CreateParams;
+                if (showHScroll) cp.Style |= WS_HSCROLL;
+                if (showVScroll) cp.Style |= WS_VSCROLL;
+                return cp;
+            }
+        }
+
+        // Brings the scrollbars and scrollOffset in line with the canvas size and each other.
         private void UpdateScrollbars()
         {
-            Size client = ClientSize;
-            int barWidth = SystemInformation.GetVerticalScrollBarWidthForDpi(this.DeviceDpi);
-            int barHeight = SystemInformation.GetHorizontalScrollBarHeightForDpi(this.DeviceDpi);
             int extentWidth = canvasSize.Width + 2 * canvasMargin;
             int extentHeight = canvasSize.Height + 2 * canvasMargin;
 
-            // one scrollbar takes space away from the other direction, which can make that one needed too
-            bool needH = extentWidth > client.Width;
-            bool needV = extentHeight > client.Height - (needH ? barHeight : 0);
-            if (needV && !needH)
+            if (IsHandleCreated && !updatingScrollbars)
             {
-                needH = extentWidth > client.Width - barWidth;
+                // setting a bar can change the client size, which raises Resize, which comes back here
+                updatingScrollbars = true;
+                try
+                {
+                    // Windows shows a bar only when its page is smaller than its range. Showing one
+                    // shrinks the client area, which can make the other one necessary, so go round
+                    // more than once.
+                    for (int pass = 0; pass < 3; ++pass)
+                    {
+                        scrollOffset = ClampScroll(scrollOffset, ClientSize, extentWidth, extentHeight);
+                        SetScrollBar(SB_HORZ, extentWidth, ClientSize.Width, scrollOffset.X);
+                        SetScrollBar(SB_VERT, extentHeight, ClientSize.Height, scrollOffset.Y);
+                    }
+                }
+                finally
+                {
+                    updatingScrollbars = false;
+                }
             }
 
-            viewport = new Size(
-                Math.Max(0, client.Width - (needV ? barWidth : 0)),
-                Math.Max(0, client.Height - (needH ? barHeight : 0)));
-
-            scrollOffset = new Point(
-                Math.Max(0, Math.Min(scrollOffset.X, extentWidth - viewport.Width)),
-                Math.Max(0, Math.Min(scrollOffset.Y, extentHeight - viewport.Height)));
-
-            syncingScrollbars = true;
-            try
-            {
-                SyncScrollBar(hScroll, needH, new Rectangle(0, viewport.Height, viewport.Width, barHeight), extentWidth, viewport.Width, scrollOffset.X);
-                SyncScrollBar(vScroll, needV, new Rectangle(viewport.Width, 0, barWidth, viewport.Height), extentHeight, viewport.Height, scrollOffset.Y);
-            }
-            finally
-            {
-                syncingScrollbars = false;
-            }
+            viewport = ClientSize;
+            scrollOffset = ClampScroll(scrollOffset, viewport, extentWidth, extentHeight);
+            showHScroll = extentWidth > viewport.Width;
+            showVScroll = extentHeight > viewport.Height;
         }
 
-        // Only touches what has changed: every property set makes the scrollbar redraw.
-        private static void SyncScrollBar(ScrollBar bar, bool visible, Rectangle bounds, int extent, int page, int value)
+        private static Point ClampScroll(Point offset, Size view, int extentWidth, int extentHeight)
         {
-            if (visible)
-            {
-                int largeChange = Math.Max(1, page);
-                int smallChange = Math.Max(1, page / 20);
-
-                if (bar.Bounds != bounds) bar.Bounds = bounds;
-                if (bar.Maximum != extent - 1) bar.Maximum = extent - 1;
-                if (bar.LargeChange != largeChange) bar.LargeChange = largeChange;
-                if (bar.SmallChange != smallChange) bar.SmallChange = smallChange;
-                if (bar.Value != value) bar.Value = value;
-            }
-
-            if (bar.Visible != visible) bar.Visible = visible;
+            return new Point(
+                Math.Max(0, Math.Min(offset.X, extentWidth - view.Width)),
+                Math.Max(0, Math.Min(offset.Y, extentHeight - view.Height)));
         }
 
-        private void scrollBar_ValueChanged(object sender, EventArgs e)
+        // what each bar was last set to: redrawing a scrollbar is slow enough to matter when it
+        // happens several times per scroll step, so only real changes are passed on
+        private readonly int[] barExtent = { -1, -1 };
+        private readonly int[] barPage = { -1, -1 };
+        private readonly int[] barPosition = { -1, -1 };
+
+        private void SetScrollBar(int bar, int extent, int page, int position)
         {
-            if (syncingScrollbars)
+            if (barExtent[bar] == extent && barPage[bar] == page && barPosition[bar] == position)
             {
                 return;
             }
 
-            scrollOffset = new Point(hScroll.Visible ? hScroll.Value : 0, vScroll.Visible ? vScroll.Value : 0);
-            this.Invalidate(new Rectangle(Point.Empty, viewport));
-            AfterScroll();
+            barExtent[bar] = extent;
+            barPage[bar] = page;
+            barPosition[bar] = position;
+
+            SCROLLINFO info = new SCROLLINFO();
+            info.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(SCROLLINFO));
+            info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+            info.nMin = 0;
+            info.nMax = Math.Max(0, extent - 1);
+            info.nPage = (uint)Math.Max(0, page);
+            info.nPos = position;
+            SetScrollInfo(this.Handle, bar, ref info, true);
+        }
+
+        // Where a WM_HSCROLL or WM_VSCROLL command wants the view to be, or -1 for no change.
+        // These come from the scrollbars themselves and from touchpad drivers.
+        private int ScrollCommandTarget(bool horizontal, IntPtr wParam)
+        {
+            int command = (int)((long)wParam & 0xFFFF);
+            int current = horizontal ? scrollOffset.X : scrollOffset.Y;
+            int page = horizontal ? viewport.Width : viewport.Height;
+            int line = Math.Max(1, page / 20);
+
+            switch (command)
+            {
+                case 0: return Math.Max(0, current - line);   // SB_LINEUP / SB_LINELEFT
+                case 1: return current + line;                // SB_LINEDOWN / SB_LINERIGHT
+                case 2: return Math.Max(0, current - page);   // SB_PAGEUP / SB_PAGELEFT
+                case 3: return current + page;                // SB_PAGEDOWN / SB_PAGERIGHT
+                case 6: return 0;                             // SB_TOP / SB_LEFT
+                case 7: return int.MaxValue / 2;              // SB_BOTTOM / SB_RIGHT
+
+                case 4:                                       // SB_THUMBPOSITION
+                case 5:                                       // SB_THUMBTRACK
+                    {
+                        // The message only carries 16 bits of the position. While the thumb is really
+                        // being dragged the full value is in nTrackPos; a message a driver made up
+                        // doesn't update that, so its 16 bits are all there is.
+                        int carried = (int)(((long)wParam >> 16) & 0xFFFF);
+
+                        SCROLLINFO info = new SCROLLINFO();
+                        info.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(SCROLLINFO));
+                        info.fMask = SIF_TRACKPOS;
+                        if (GetScrollInfo(this.Handle, horizontal ? SB_HORZ : SB_VERT, ref info) && (info.nTrackPos & 0xFFFF) == carried)
+                        {
+                            return info.nTrackPos;
+                        }
+
+                        return carried;
+                    }
+
+                default: return -1;                           // SB_ENDSCROLL
+            }
         }
 
         // Where the canvas is within this control: centered if it fits, otherwise wherever it is scrolled to.
@@ -225,10 +301,93 @@ namespace pyrochild.effects.common
 
         private readonly RegionPainter painter = new RegionPainter();
 
+        private const int WM_HSCROLL = 0x0114;
+        private const int WM_VSCROLL = 0x0115;
+        private const int WM_MOUSEWHEEL = 0x020A;
+        private const int WM_MOUSEHWHEEL = 0x020E;
+
         protected override void WndProc(ref Message m)
         {
+
+            if (m.Msg == WM_MOUSEHWHEEL)
+            {
+                HandleWheelMessage(ref m);
+                return;
+            }
+
+            // from the window's own scrollbars, or from a touchpad driver that scrolls with them
+            if (m.Msg == WM_HSCROLL || m.Msg == WM_VSCROLL)
+            {
+                bool horizontal = m.Msg == WM_HSCROLL;
+                int target = ScrollCommandTarget(horizontal, m.WParam);
+                if (target >= 0)
+                {
+                    ScrollPosition = horizontal ? new Point(target, scrollOffset.Y) : new Point(scrollOffset.X, target);
+                    AfterScroll(false);
+                }
+                m.Result = IntPtr.Zero;
+                return;
+            }
+
             painter.BeforeWndProc(this, ref m);
             base.WndProc(ref m);
+        }
+
+        /// <summary>
+        /// The wheel distance in a WM_MOUSEWHEEL or WM_MOUSEHWHEEL message. For the horizontal one,
+        /// positive is to the right.
+        /// </summary>
+        public static int WheelDelta(Message m)
+        {
+            return (short)(((long)m.WParam >> 16) & 0xFFFF);
+        }
+
+        /// <summary>
+        /// Scrolls for a wheel message, whichever window it was addressed to.
+        /// </summary>
+        internal void HandleWheelMessage(ref Message m)
+        {
+            if (m.Msg == WM_MOUSEHWHEEL)
+            {
+                PerformHorizontalMouseWheel(WheelDelta(m));
+
+                // The documentation says to return 0, but some mouse and touchpad drivers take that
+                // as "not handled" and switch to emulating the scroll some other way.
+                m.Result = (IntPtr)1;
+            }
+            else
+            {
+                PerformMouseWheel(new MouseEventArgs(MouseButtons.None, 0, 0, 0, WheelDelta(m)));
+                m.Result = IntPtr.Zero;
+            }
+        }
+
+        // Whether a wheel message, whoever it is addressed to, is meant for the canvas.
+        private bool IsMouseOverForWheel()
+        {
+            if (!IsHandleCreated || !Visible)
+            {
+                return false;
+            }
+
+            Form form = FindForm();
+            if (form == null || Form.ActiveForm != form)
+            {
+                return false;
+            }
+
+            return RectangleToScreen(ClientRectangle).Contains(Cursor.Position);
+        }
+
+        /// <summary>
+        /// Scrolls sideways for a horizontal wheel or a two-finger sideways swipe on a touchpad. WinForms
+        /// has no event for these, so the owner passes on WM_MOUSEHWHEEL messages that reach it instead
+        /// of this control, the same way it calls PerformMouseWheel.
+        /// </summary>
+        public void PerformHorizontalMouseWheel(int delta)
+        {
+            ScrollBy(delta, 0);
+            AfterScroll(false);
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)
@@ -264,25 +423,9 @@ namespace pyrochild.effects.common
         private void PaintNow(PaintEventArgs e)
         {
             Rectangle canvasBounds = CanvasBounds;
-            Rectangle view = new Rectangle(Point.Empty, viewport);
 
-            painter.Paint(e, ClientRectangle, (g, wholeClip) =>
+            painter.Paint(e, ClientRectangle, (g, clip) =>
             {
-                // the only part of the client area outside the viewport that isn't under a scrollbar
-                // is the square where the two scrollbars meet
-                Rectangle clip = Rectangle.Intersect(wholeClip, view);
-                if (clip != wholeClip)
-                {
-                    g.FillRectangle(SystemBrushes.Control, wholeClip);
-                }
-
-                if (clip.Width <= 0 || clip.Height <= 0)
-                {
-                    return;
-                }
-
-                g.SetClip(clip);
-
                 if (!canvasBounds.Contains(clip))
                 {
                     PaintBackground(g, clip);
@@ -451,6 +594,7 @@ namespace pyrochild.effects.common
                     IntPtr srcScan0 = surface.Scan0.Pointer;
                     IntPtr dstScan0 = (IntPtr)scaledPixels;
                     int srcStride = surface.Stride;
+
 
                     Action<int> row = y =>
                     {
@@ -745,6 +889,9 @@ namespace pyrochild.effects.common
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern short GetKeyState(int virtualKey);
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int virtualKey);
+
         private const int VK_SPACE = 0x20;
 
         private bool panning;
@@ -760,7 +907,12 @@ namespace pyrochild.effects.common
                 return true;
             }
 
-            if (button != MouseButtons.Middle && !(button == MouseButtons.Left && GetKeyState(VK_SPACE) < 0))
+            // either view of the keyboard will do: the state as of the message being handled, or right now
+            bool spaceDown = GetKeyState(VK_SPACE) < 0 || GetAsyncKeyState(VK_SPACE) < 0;
+            bool pan = button == MouseButtons.Middle || (button == MouseButtons.Left && spaceDown);
+
+
+            if (!pan)
             {
                 return false;
             }
@@ -778,22 +930,31 @@ namespace pyrochild.effects.common
         // circle, before any dragging starts. This control never has keyboard focus, so it watches
         // for the key with a message filter.
         private bool spaceHeld;
-        private SpaceKeyFilter spaceKeyFilter;
+        private InputFilter inputFilter;
 
-        private sealed class SpaceKeyFilter : IMessageFilter
+        private sealed class InputFilter : IMessageFilter
         {
             private const int WM_KEYDOWN = 0x0100;
             private const int WM_KEYUP = 0x0101;
 
             private readonly CanvasPanel owner;
 
-            public SpaceKeyFilter(CanvasPanel owner)
+            public InputFilter(CanvasPanel owner)
             {
                 this.owner = owner;
             }
 
             public bool PreFilterMessage(ref Message m)
             {
+                // Wheel messages go to whichever control has focus, or to whatever the touchpad
+                // driver picks, which is rarely this one. Take them here while the mouse is over
+                // the canvas, so scrolling it doesn't depend on any of that.
+                if ((m.Msg == WM_MOUSEWHEEL || m.Msg == WM_MOUSEHWHEEL) && owner.IsMouseOverForWheel())
+                {
+                    owner.HandleWheelMessage(ref m);
+                    return true;
+                }
+
                 if ((m.Msg == WM_KEYDOWN || m.Msg == WM_KEYUP) && (int)m.WParam == VK_SPACE)
                 {
                     bool down = m.Msg == WM_KEYDOWN;
@@ -811,23 +972,47 @@ namespace pyrochild.effects.common
             }
         }
 
+        // Windows' own dark scrollbars, the ones Explorer uses in dark mode.
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hWnd, string subAppName, string subIdList);
+
+        private bool darkScrollbars;
+
+        void IDarkThemeable.ApplyDarkTheme(Color back, Color fore, Color field, Color border)
+        {
+            darkScrollbars = true;
+            if (IsHandleCreated)
+            {
+                SetWindowTheme(this.Handle, "DarkMode_Explorer", null);
+            }
+        }
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
 
-            if (spaceKeyFilter == null)
+            if (darkScrollbars)
             {
-                spaceKeyFilter = new SpaceKeyFilter(this);
-                Application.AddMessageFilter(spaceKeyFilter);
+                SetWindowTheme(this.Handle, "DarkMode_Explorer", null);
+            }
+
+            // the scrollbars couldn't be set up before the window existed, and a new window has none
+            barExtent[0] = barExtent[1] = -1;
+            UpdateScrollbars();
+
+            if (inputFilter == null)
+            {
+                inputFilter = new InputFilter(this);
+                Application.AddMessageFilter(inputFilter);
             }
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
         {
-            if (spaceKeyFilter != null)
+            if (inputFilter != null)
             {
-                Application.RemoveMessageFilter(spaceKeyFilter);
-                spaceKeyFilter = null;
+                Application.RemoveMessageFilter(inputFilter);
+                inputFilter = null;
             }
 
             base.OnHandleDestroyed(e);
@@ -839,6 +1024,7 @@ namespace pyrochild.effects.common
             {
                 return;
             }
+
 
             InvalidateBrush();
             spaceHeld = held;
@@ -856,7 +1042,7 @@ namespace pyrochild.effects.common
             ScrollPosition = new Point(
                 panStartScroll.X - (mouse.X - panStartMouse.X),
                 panStartScroll.Y - (mouse.Y - panStartMouse.Y));
-            AfterScroll();
+            AfterScroll(true);
         }
 
         private void EndPan(MouseButtons button)
@@ -887,15 +1073,45 @@ namespace pyrochild.effects.common
             InvalidateBrush();
         }
 
-        // Every way of scrolling ends up here. Paint messages wait behind mouse input, so during a
-        // drag the view would lag behind; Update() repaints right away.
-        private void AfterScroll()
+        // Every way of scrolling ends up here.
+        // Paint messages wait behind input, so the view would lag behind unless it is repainted right
+        // away. For wheel scrolling (repaintNow false) that is only done once no more wheel messages
+        // are waiting: a diagonal touchpad swipe arrives as separate sideways and vertical messages,
+        // and painting between the two shows as a staircase.
+        private void AfterScroll(bool repaintNow)
         {
             if (!panning)
             {
                 SyncBrushToMouse();
             }
-            Update();
+
+            if (repaintNow || !IsWheelMessageQueued())
+            {
+                Update();
+            }
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativeMessage
+        {
+            public IntPtr hwnd;
+            public uint message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public uint time;
+            public int x;
+            public int y;
+            public uint extra;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool PeekMessage(out NativeMessage message, IntPtr hWnd, uint filterMin, uint filterMax, uint remove);
+
+        // looks without removing; WM_MOUSEWHEEL to WM_MOUSEHWHEEL covers both
+        private static bool IsWheelMessageQueued()
+        {
+            NativeMessage message;
+            return PeekMessage(out message, IntPtr.Zero, WM_MOUSEWHEEL, WM_MOUSEHWHEEL, 0);
         }
 
         /// <summary>
@@ -925,8 +1141,92 @@ namespace pyrochild.effects.common
             ZoomFactor = best;
         }
 
+        // Releases of the button that started a drag are acted on a moment later, and dropped if the
+        // same button goes down again first. With two pointing devices in play (a laptop's touchpad
+        // and pointing stick, say) Windows can report a held button as a rapid series of releases and
+        // presses, which would otherwise chop one stroke into many.
+        private const int releaseDelay = 50;
+        private Timer releaseTimer;
+        private bool releasePending;
+        private MouseButtons releaseButton;
+        private Point releaseLocation;
+
+        private void DeferRelease(MouseButtons button, Point location)
+        {
+            bool endsDrag = panning ? button == panButton : (button == buttons && buttons != MouseButtons.None);
+            if (!endsDrag)
+            {
+                Release(button, location);
+                return;
+            }
+
+            if (releaseTimer == null)
+            {
+                releaseTimer = new Timer(components);
+                releaseTimer.Interval = releaseDelay;
+                releaseTimer.Tick += (s, e) => FlushRelease();
+            }
+
+            releasePending = true;
+            releaseButton = button;
+            releaseLocation = location;
+            releaseTimer.Stop();
+            releaseTimer.Start();
+        }
+
+        private void FlushRelease()
+        {
+            if (releaseTimer != null)
+            {
+                releaseTimer.Stop();
+            }
+
+            if (releasePending)
+            {
+                releasePending = false;
+                Release(releaseButton, releaseLocation);
+            }
+        }
+
+        private void Release(MouseButtons button, Point location)
+        {
+            if (panning)
+            {
+                EndPan(button);
+                return;
+            }
+
+            Point canvasLocation = CanvasLocation;
+            OnCanvasMouseUp(button, location.X - canvasLocation.X, location.Y - canvasLocation.Y);
+        }
+
+        // Losing the mouse capture mid-drag (Alt+Tab, a menu opening) means the release will never
+        // arrive here, so treat it as one.
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+
+            if (!Capture && !releasePending && (panning || buttons != MouseButtons.None))
+            {
+                DeferRelease(panning ? panButton : buttons, PointToClient(Cursor.Position));
+            }
+        }
+
         private void CanvasPanel_MouseDown(object sender, MouseEventArgs e)
         {
+            if (releasePending)
+            {
+                if (e.Button == releaseButton)
+                {
+                    // pressed again before the release was acted on: carry on with the same drag
+                    releasePending = false;
+                    releaseTimer.Stop();
+                    return;
+                }
+
+                FlushRelease();
+            }
+
             if (BeginPan(e.Button))
                 return;
 
@@ -1032,21 +1332,18 @@ namespace pyrochild.effects.common
                 return;
             }
 
+            // While a button we were told went down is still down as far as we know, report that one:
+            // a move that comes from a second pointing device doesn't carry the first one's buttons.
+            MouseButtons button = buttons != MouseButtons.None ? buttons : e.Button;
+
             Rectangle canvasBounds = CanvasBounds;
             canvashasmouse = canvasBounds.Contains(e.Location);
-            OnCanvasMouseMove(e.Button, e.X - canvasBounds.X, e.Y - canvasBounds.Y);
+            OnCanvasMouseMove(button, e.X - canvasBounds.X, e.Y - canvasBounds.Y);
         }
 
         private void CanvasPanel_MouseUp(object sender, MouseEventArgs e)
         {
-            if (panning)
-            {
-                EndPan(e.Button);
-                return;
-            }
-
-            Point location = CanvasLocation;
-            OnCanvasMouseUp(e.Button, e.X - location.X, e.Y - location.Y);
+            DeferRelease(e.Button, e.Location);
         }
 
         private void CanvasPanel_MouseLeave(object sender, System.EventArgs e)
@@ -1176,7 +1473,7 @@ namespace pyrochild.effects.common
                 ScrollBy(0, -e.Delta);
             }
 
-            AfterScroll();
+            AfterScroll(false);
         }
 
         private void ScrollBy(int dx, int dy)
