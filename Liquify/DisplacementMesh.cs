@@ -6,6 +6,7 @@ using System.Drawing;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace pyrochild.effects.liquify
 {
@@ -110,7 +111,7 @@ namespace pyrochild.effects.liquify
         {
             if (rect.Width == 0) return;
 
-            for (int y = rect.Top; y < rect.Bottom; ++y)
+            ForEachRow(rect, y =>
             {
                 DisplacementVector* offset = this.GetPointAddressUnchecked(rect.Left, y);
                 ColorBgra* dstPixel = (ColorBgra*)dst.GetPointPointer(rect.Left, y);
@@ -121,6 +122,27 @@ namespace pyrochild.effects.liquify
                     ++offset;
                     ++dstPixel;
                 }
+            });
+        }
+
+        const int parallelMinPixels = 128 * 128;
+
+        /// <summary>
+        /// Runs an action for every row of rect, in parallel once the rect is big enough to be worth it.
+        /// The action must only write to its own row.
+        /// </summary>
+        internal static void ForEachRow(Rectangle rect, Action<int> row)
+        {
+            if ((long)rect.Width * rect.Height < parallelMinPixels)
+            {
+                for (int y = rect.Top; y < rect.Bottom; ++y)
+                {
+                    row(y);
+                }
+            }
+            else
+            {
+                Parallel.For(rect.Top, rect.Bottom, row);
             }
         }
 
@@ -130,7 +152,7 @@ namespace pyrochild.effects.liquify
 
             if (rect.Width == 0) return;
 
-            for (int y = rect.Top; y < rect.Bottom; ++y)
+            ForEachRow(rect, y =>
             {
                 DisplacementVector* offset = this.GetPointAddressUnchecked(rect.Left, y);
                 ColorBgra* dstPixel = (ColorBgra*)dst.GetPointPointer(rect.Left, y);
@@ -143,7 +165,7 @@ namespace pyrochild.effects.liquify
                     ++offset;
                     ++dstPixel;
                 }
-            }
+            });
         }
 
         public void Dispose()
