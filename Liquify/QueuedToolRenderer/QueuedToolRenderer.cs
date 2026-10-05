@@ -78,12 +78,21 @@ namespace pyrochild.effects.common
 
         private void OnEventQueued()
         {
-            if (renderThread == null || !renderThread.IsAlive)
+            // rendering is only changed under the queue lock, so the render thread can't decide to exit
+            // between an event being queued and this check
+            lock (eventQueue)
             {
-                renderThread = new Thread(new ThreadStart(Render));
-                renderThread.Start();
+                if (rendering)
+                {
+                    return;
+                }
+                rendering = true;
             }
+            renderThread = new Thread(new ThreadStart(Render));
+            renderThread.Start();
         }
+
+        bool rendering = false;
 
         bool aborted = false;
         public void Abort()
@@ -110,14 +119,19 @@ namespace pyrochild.effects.common
         private void Render()
         {
             bool didsomething = false;
-            while (GetQueueSize() > 0)
+            while (true)
             {
-                didsomething = true;
                 QueuedToolEventArgs args;
                 lock (eventQueue)
                 {
+                    if (eventQueue.Count == 0)
+                    {
+                        rendering = false;
+                        break;
+                    }
                     args = eventQueue.Dequeue();
                 }
+                didsomething = true;
                 if (args != null)
                 {
                     switch (args.EventType)
