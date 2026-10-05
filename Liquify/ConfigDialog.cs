@@ -222,8 +222,9 @@ namespace pyrochild.effects.liquify
             redo.ToolTipText= "Redo";
             brushSizeIncrement.ToolTipText = "Increase brush size";
             brushSizeDecrement.ToolTipText = "Decrease brush size";
-            zoomIn.ToolTipText = "Zoom in";
-            zoomOut.ToolTipText = "Zoom out";
+            zoomIn.ToolTipText = "Zoom in (Ctrl +)";
+            zoomOut.ToolTipText = "Zoom out (Ctrl -)";
+            zoom.ToolTipText = "Zoom (Ctrl+0 for 100%, Ctrl+B to fit)";
         }
 
         private void InitializeRenderer()
@@ -256,6 +257,29 @@ namespace pyrochild.effects.liquify
             if (keyData == Keys.Space && !brushSize.Focused && !zoom.Focused)
             {
                 return true;
+            }
+
+            // the same zoom shortcuts as Paint.NET's main window
+            switch (keyData)
+            {
+                case Keys.Control | Keys.Oemplus:
+                case Keys.Control | Keys.Add:
+                    canvas.ZoomIn();
+                    return true;
+
+                case Keys.Control | Keys.OemMinus:
+                case Keys.Control | Keys.Subtract:
+                    canvas.ZoomOut();
+                    return true;
+
+                case Keys.Control | Keys.D0:
+                case Keys.Control | Keys.NumPad0:
+                    canvas.ZoomFactor = 1f;
+                    return true;
+
+                case Keys.Control | Keys.B:
+                    canvas.ZoomToFit();
+                    return true;
             }
 
             return base.ProcessCmdKey(ref msg, keyData);
