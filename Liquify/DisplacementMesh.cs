@@ -287,6 +287,23 @@ namespace pyrochild.effects.liquify
             });
         }
 
+        /// <summary>
+        /// Removes all distortion. The mask is left alone.
+        /// </summary>
+        public unsafe void ClearOffsets()
+        {
+            ForEachRow(Bounds, y =>
+            {
+                DisplacementVector* ptr = GetPointAddressUnchecked(0, y);
+                for (int x = 0; x < width; ++x)
+                {
+                    ptr->X = 0;
+                    ptr->Y = 0;
+                    ++ptr;
+                }
+            });
+        }
+
         public unsafe void ClearMask()
         {
             ForEachRow(Bounds, y =>

@@ -50,6 +50,7 @@ namespace pyrochild.effects.liquify
             this.bloat = new System.Windows.Forms.RadioButton();
             this.pucker = new System.Windows.Forms.RadioButton();
             this.reconstruct = new System.Windows.Forms.RadioButton();
+            this.resetAll = new System.Windows.Forms.Button();
             this.freeze = new System.Windows.Forms.RadioButton();
             this.thaw = new System.Windows.Forms.RadioButton();
             this.clearMask = new System.Windows.Forms.Button();
@@ -57,6 +58,7 @@ namespace pyrochild.effects.liquify
             this.load = new System.Windows.Forms.Button();
             this.save = new System.Windows.Forms.Button();
             this.toolStripSeparator3 = new System.Windows.Forms.ToolStripSeparator();
+            this.showMask = new System.Windows.Forms.ToolStripButton();
             this.meshSmall = new System.Windows.Forms.ToolStripButton();
             this.meshLarge = new System.Windows.Forms.ToolStripButton();
             this.settingStrip = new DoubleBufferedToolStrip();
@@ -94,6 +96,7 @@ namespace pyrochild.effects.liquify
             this.toolPanel.Controls.Add(this.bloat);
             this.toolPanel.Controls.Add(this.pucker);
             this.toolPanel.Controls.Add(this.reconstruct);
+            this.toolPanel.Controls.Add(this.resetAll);
             this.toolPanel.Controls.Add(this.freeze);
             this.toolPanel.Controls.Add(this.thaw);
             this.toolPanel.Controls.Add(this.clearMask);
@@ -124,7 +127,7 @@ namespace pyrochild.effects.liquify
             this.twistleft.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.twistleft.Name = "twistleft";
             this.twistleft.Size = new System.Drawing.Size(26, 26);
-            this.twistleft.TabIndex = 7;
+            this.twistleft.TabIndex = 1;
             this.twistleft.TabStop = true;
             this.twistleft.Text = " ";
             this.twistleft.UseVisualStyleBackColor = true;
@@ -136,7 +139,7 @@ namespace pyrochild.effects.liquify
             this.twistright.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.twistright.Name = "twistright";
             this.twistright.Size = new System.Drawing.Size(26, 26);
-            this.twistright.TabIndex = 6;
+            this.twistright.TabIndex = 2;
             this.twistright.TabStop = true;
             this.twistright.Text = " ";
             this.twistright.UseVisualStyleBackColor = true;
@@ -148,7 +151,7 @@ namespace pyrochild.effects.liquify
             this.bloat.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.bloat.Name = "bloat";
             this.bloat.Size = new System.Drawing.Size(26, 26);
-            this.bloat.TabIndex = 2;
+            this.bloat.TabIndex = 3;
             this.bloat.TabStop = true;
             this.bloat.Text = " ";
             this.bloat.UseVisualStyleBackColor = true;
@@ -160,7 +163,7 @@ namespace pyrochild.effects.liquify
             this.pucker.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.pucker.Name = "pucker";
             this.pucker.Size = new System.Drawing.Size(26, 26);
-            this.pucker.TabIndex = 3;
+            this.pucker.TabIndex = 4;
             this.pucker.TabStop = true;
             this.pucker.Text = " ";
             this.pucker.UseVisualStyleBackColor = true;
@@ -172,10 +175,20 @@ namespace pyrochild.effects.liquify
             this.reconstruct.Margin = new System.Windows.Forms.Padding(2, 14, 2, 0);
             this.reconstruct.Name = "reconstruct";
             this.reconstruct.Size = new System.Drawing.Size(26, 26);
-            this.reconstruct.TabIndex = 1;
+            this.reconstruct.TabIndex = 5;
             this.reconstruct.TabStop = true;
             this.reconstruct.Text = " ";
             this.reconstruct.UseVisualStyleBackColor = true;
+            // 
+            // resetAll
+            // 
+            this.resetAll.Location = new System.Drawing.Point(2, 170);
+            this.resetAll.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
+            this.resetAll.Name = "resetAll";
+            this.resetAll.Size = new System.Drawing.Size(26, 26);
+            this.resetAll.TabIndex = 6;
+            this.resetAll.UseVisualStyleBackColor = true;
+            this.resetAll.Click += new System.EventHandler(this.resetAll_Click);
             // 
             // freeze
             // 
@@ -184,7 +197,7 @@ namespace pyrochild.effects.liquify
             this.freeze.Margin = new System.Windows.Forms.Padding(2, 14, 2, 0);
             this.freeze.Name = "freeze";
             this.freeze.Size = new System.Drawing.Size(26, 26);
-            this.freeze.TabIndex = 9;
+            this.freeze.TabIndex = 7;
             this.freeze.TabStop = true;
             this.freeze.UseVisualStyleBackColor = true;
             // 
@@ -205,7 +218,7 @@ namespace pyrochild.effects.liquify
             this.clearMask.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.clearMask.Name = "clearMask";
             this.clearMask.Size = new System.Drawing.Size(26, 26);
-            this.clearMask.TabIndex = 10;
+            this.clearMask.TabIndex = 9;
             this.clearMask.UseVisualStyleBackColor = true;
             this.clearMask.Click += new System.EventHandler(this.clearMask_Click);
             // 
@@ -215,7 +228,7 @@ namespace pyrochild.effects.liquify
             this.invertMask.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.invertMask.Name = "invertMask";
             this.invertMask.Size = new System.Drawing.Size(26, 26);
-            this.invertMask.TabIndex = 11;
+            this.invertMask.TabIndex = 10;
             this.invertMask.UseVisualStyleBackColor = true;
             this.invertMask.Click += new System.EventHandler(this.invertMask_Click);
             // 
@@ -225,7 +238,7 @@ namespace pyrochild.effects.liquify
             this.load.Margin = new System.Windows.Forms.Padding(2, 14, 2, 0);
             this.load.Name = "load";
             this.load.Size = new System.Drawing.Size(26, 26);
-            this.load.TabIndex = 4;
+            this.load.TabIndex = 11;
             this.load.UseVisualStyleBackColor = true;
             this.load.Click += new System.EventHandler(this.load_Click);
             // 
@@ -235,7 +248,7 @@ namespace pyrochild.effects.liquify
             this.save.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.save.Name = "save";
             this.save.Size = new System.Drawing.Size(26, 26);
-            this.save.TabIndex = 5;
+            this.save.TabIndex = 12;
             this.save.UseVisualStyleBackColor = true;
             this.save.Click += new System.EventHandler(this.save_Click);
             // 
@@ -259,12 +272,13 @@ namespace pyrochild.effects.liquify
             this.zoom,
             this.zoomIn,
             this.toolStripSeparator3,
+            this.showMask,
             this.meshSmall,
             this.meshLarge});
             this.settingStrip.Location = new System.Drawing.Point(0, 0);
             this.settingStrip.Name = "settingStrip";
             this.settingStrip.Size = new System.Drawing.Size(624, 25);
-            this.settingStrip.TabIndex = 1;
+            this.settingStrip.TabIndex = 3;
             this.settingStrip.Text = "toolStrip1";
             // 
             // brushSizeSeparator
@@ -377,6 +391,17 @@ namespace pyrochild.effects.liquify
             this.toolStripSeparator3.Name = "toolStripSeparator3";
             this.toolStripSeparator3.Size = new System.Drawing.Size(6, 25);
             // 
+            // showMask
+            // 
+            this.showMask.Checked = true;
+            this.showMask.CheckOnClick = true;
+            this.showMask.CheckState = System.Windows.Forms.CheckState.Checked;
+            this.showMask.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.showMask.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this.showMask.Name = "showMask";
+            this.showMask.Size = new System.Drawing.Size(23, 22);
+            this.showMask.Click += new System.EventHandler(this.showMask_Click);
+            // 
             // meshSmall
             // 
             this.meshSmall.CheckOnClick = true;
@@ -404,7 +429,7 @@ namespace pyrochild.effects.liquify
             this.panel1.Location = new System.Drawing.Point(30, 412);
             this.panel1.Name = "panel1";
             this.panel1.Size = new System.Drawing.Size(594, 30);
-            this.panel1.TabIndex = 1;
+            this.panel1.TabIndex = 2;
             // 
             // ok
             // 
@@ -413,7 +438,7 @@ namespace pyrochild.effects.liquify
             this.ok.Location = new System.Drawing.Point(435, 4);
             this.ok.Name = "ok";
             this.ok.Size = new System.Drawing.Size(75, 23);
-            this.ok.TabIndex = 3;
+            this.ok.TabIndex = 0;
             this.ok.Text = "OK";
             this.ok.UseVisualStyleBackColor = true;
             this.ok.Click += new System.EventHandler(this.ok_Click);
@@ -425,7 +450,7 @@ namespace pyrochild.effects.liquify
             this.cancel.Location = new System.Drawing.Point(516, 4);
             this.cancel.Name = "cancel";
             this.cancel.Size = new System.Drawing.Size(75, 23);
-            this.cancel.TabIndex = 4;
+            this.cancel.TabIndex = 1;
             this.cancel.Text = "Cancel";
             this.cancel.UseVisualStyleBackColor = true;
             this.cancel.Click += new System.EventHandler(this.cancel_Click);
@@ -436,7 +461,7 @@ namespace pyrochild.effects.liquify
             this.donate.Location = new System.Drawing.Point(6, 10);
             this.donate.Name = "donate";
             this.donate.Size = new System.Drawing.Size(45, 13);
-            this.donate.TabIndex = 5;
+            this.donate.TabIndex = 2;
             this.donate.TabStop = true;
             this.donate.Text = "Donate!";
             this.donate.LinkClicked += new System.Windows.Forms.LinkLabelLinkClickedEventHandler(this.donate_LinkClicked);
@@ -457,7 +482,8 @@ namespace pyrochild.effects.liquify
             this.canvas.Selection = null;
             this.canvas.Size = new System.Drawing.Size(594, 387);
             this.canvas.Surface = null;
-            this.canvas.TabIndex = 2;
+            this.canvas.TabIndex = 1;
+            this.canvas.TabStop = false;
             this.canvas.ZoomFactor = 1F;
             this.canvas.CanvasMouseDown += new System.EventHandler<pyrochild.effects.common.CanvasMouseEventArgs>(this.canvas_CanvasMouseDown);
             this.canvas.CanvasMouseMove += new System.EventHandler<pyrochild.effects.common.CanvasMouseEventArgs>(this.canvas_CanvasMouseMove);
@@ -533,6 +559,8 @@ namespace pyrochild.effects.liquify
         private Button clearMask;
         private Button invertMask;
         private ToolStripSeparator toolStripSeparator3;
+        private Button resetAll;
+        private ToolStripButton showMask;
         private ToolStripButton meshSmall;
         private ToolStripButton meshLarge;
     }

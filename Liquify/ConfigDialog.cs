@@ -52,6 +52,9 @@ namespace pyrochild.effects.liquify
         // distance between the mesh grid's lines, in image pixels; 0 means the grid is off
         private float gridSpacing;
 
+        // true while the "show original" key is held: the canvas shows the source instead of the preview
+        private bool comparing;
+
         private float DpiScale
         {
             get { return this.DeviceDpi / 96f; }
@@ -185,6 +188,7 @@ namespace pyrochild.effects.liquify
             redo.Image = new Bitmap(t, "images.redo.png");
             zoomIn.Image = new Bitmap(t, "images.zoomin.png");
             zoomOut.Image = new Bitmap(t, "images.zoomout.png");
+            showMask.Image = new Bitmap(t, "images.showmask.png");
             meshSmall.Image = new Bitmap(t, "images.gridsmall.png");
             meshLarge.Image = new Bitmap(t, "images.gridlarge.png");
 
@@ -197,6 +201,7 @@ namespace pyrochild.effects.liquify
 
             freeze.Image = LoadIcon(t, "images.freeze.png", dpiScale);
             thaw.Image = LoadIcon(t, "images.thaw.png", dpiScale);
+            resetAll.Image = LoadIcon(t, "images.resetall.png", dpiScale);
             clearMask.Image = LoadIcon(t, "images.clearmask.png", dpiScale);
             invertMask.Image = LoadIcon(t, "images.invertmask.png", dpiScale);
         }
@@ -227,18 +232,21 @@ namespace pyrochild.effects.liquify
 
         private void InitializeTooltips()
         {
-            tooltip.SetToolTip(push, "Push");
-            tooltip.SetToolTip(reconstruct, "Reconstruct");
-            tooltip.SetToolTip(bloat, "Bloat");
-            tooltip.SetToolTip(pucker, "Pucker");
-            tooltip.SetToolTip(twistleft, "Twist left");
-            tooltip.SetToolTip(twistright, "Twist right");
+            // the letters are the tool shortcuts handled in ProcessCmdKey
+            tooltip.SetToolTip(push, "Push (P)");
+            tooltip.SetToolTip(reconstruct, "Reconstruct (E)");
+            tooltip.SetToolTip(resetAll, "Reset all distortion");
+            tooltip.SetToolTip(bloat, "Bloat (B)");
+            tooltip.SetToolTip(pucker, "Pucker (S)");
+            tooltip.SetToolTip(twistleft, "Twist left (L)");
+            tooltip.SetToolTip(twistright, "Twist right (R)");
             tooltip.SetToolTip(save, "Save mesh");
             tooltip.SetToolTip(load, "Load mesh");
-            tooltip.SetToolTip(freeze, "Freeze");
-            tooltip.SetToolTip(thaw, "Thaw");
+            tooltip.SetToolTip(freeze, "Freeze (F)");
+            tooltip.SetToolTip(thaw, "Thaw (T)");
             tooltip.SetToolTip(clearMask, "Thaw everything");
             tooltip.SetToolTip(invertMask, "Invert frozen area");
+            showMask.ToolTipText = "Show frozen areas (M). Hold O to see the original image.";
             meshSmall.ToolTipText = "Show mesh (fine)";
             meshLarge.ToolTipText = "Show mesh (coarse)";
             undo.ToolTipText= "Undo";
@@ -278,7 +286,15 @@ namespace pyrochild.effects.liquify
         // Everything that draws the preview goes through here, so the mask tint stays consistent.
         private void RenderPreview(Rectangle rect)
         {
-            mesh.Render(surface, source, rect, ColorBgra.Red);
+            // a fully transparent mask color leaves the image untinted
+            ColorBgra maskColor = showMask.Checked ? ColorBgra.Red : ColorBgra.Red.NewAlpha(0);
+            mesh.Render(surface, source, rect, maskColor);
+        }
+
+        private void RenderWholePreview()
+        {
+            RenderPreview(source.Bounds);
+            canvas.InvalidateCanvas();
         }
 
         // The grid isn't part of the preview image: the canvas calls DrawGridRow as it paints, so the
@@ -310,10 +326,47 @@ namespace pyrochild.effects.liquify
         {
             float spacing = gridSpacing;
 
-            if (spacing > 0 && mesh != null)
+            if (spacing > 0 && !comparing && mesh != null)
             {
                 mesh.DrawGridRow(pixels, canvasX, canvasY, count, scale, spacing, 0.5f / scale);
             }
+        }
+
+        private void showMask_Click(object sender, EventArgs e)
+        {
+            if (mesh != null)
+            {
+                RenderWholePreview();
+            }
+        }
+
+        // While the key is held the canvas shows the untouched source image.
+        private void SetComparing(bool compare)
+        {
+            if (comparing == compare || source == null)
+            {
+                return;
+            }
+
+            comparing = compare;
+            canvas.Surface = compare ? source : surface;
+        }
+
+        protected override void OnKeyUp(KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.O)
+            {
+                SetComparing(false);
+            }
+
+            base.OnKeyUp(e);
+        }
+
+        protected override void OnDeactivate(EventArgs e)
+        {
+            // the key release goes to whichever window has focus by then
+            SetComparing(false);
+            base.OnDeactivate(e);
         }
 
         private void mesh_Click(object sender, EventArgs e)
@@ -333,15 +386,21 @@ namespace pyrochild.effects.liquify
 
         private void clearMask_Click(object sender, EventArgs e)
         {
-            ChangeMask(mesh.ClearMask);
+            ChangeWholeMesh(mesh.ClearMask);
         }
 
         private void invertMask_Click(object sender, EventArgs e)
         {
-            ChangeMask(mesh.InvertMask);
+            ChangeWholeMesh(mesh.InvertMask);
         }
 
-        private void ChangeMask(Action change)
+        private void resetAll_Click(object sender, EventArgs e)
+        {
+            ChangeWholeMesh(mesh.ClearOffsets);
+        }
+
+        // An edit to the whole mesh as one undoable step.
+        private void ChangeWholeMesh(Action change)
         {
             if (strokePending)
             {
@@ -351,8 +410,7 @@ namespace pyrochild.effects.liquify
             change();
             historystack.AddHistoryItem(mesh, mesh.Bounds);
             UpdateHistoryButtons();
-            RenderPreview(source.Bounds);
-            canvas.InvalidateCanvas();
+            RenderWholePreview();
         }
 
         // Space is the pan key (see CanvasPanel), so don't let it press whichever button has focus.
@@ -384,6 +442,32 @@ namespace pyrochild.effects.liquify
                 case Keys.Control | Keys.B:
                     canvas.ZoomToFit();
                     return true;
+            }
+
+            // plain letters, unless they are being typed into the size box
+            if (!brushSize.Focused)
+            {
+                switch (keyData)
+                {
+                    case Keys.P: push.Checked = true; return true;
+                    case Keys.L: twistleft.Checked = true; return true;
+                    case Keys.R: twistright.Checked = true; return true;
+                    case Keys.B: bloat.Checked = true; return true;
+                    case Keys.S: pucker.Checked = true; return true;
+                    case Keys.E: reconstruct.Checked = true; return true;
+                    case Keys.F: freeze.Checked = true; return true;
+                    case Keys.T: thaw.Checked = true; return true;
+
+                    case Keys.M:
+                        showMask.Checked = !showMask.Checked;
+                        showMask_Click(showMask, EventArgs.Empty);
+                        return true;
+
+                    case Keys.O:
+                        // held down: this repeats, and OnKeyUp ends it
+                        SetComparing(true);
+                        return true;
+                }
             }
 
             return base.ProcessCmdKey(ref msg, keyData);
@@ -440,6 +524,7 @@ namespace pyrochild.effects.liquify
             ok.Enabled = !pending;
             load.Enabled = !pending;
             save.Enabled = !pending;
+            resetAll.Enabled = !pending;
             clearMask.Enabled = !pending;
             invertMask.Enabled = !pending;
         }
@@ -741,7 +826,12 @@ namespace pyrochild.effects.liquify
 
         private void canvas_CanvasMouseDown(object sender, CanvasMouseEventArgs e)
         {
-            // clicking the canvas doesn't take focus away from the size box, so check it here too
+            // Clicking the canvas doesn't take focus away from the size box by itself. Move it, so the
+            // letter shortcuts work again, and check the size here in case the focus change didn't.
+            if (brushSize.Focused)
+            {
+                canvas.Focus();
+            }
             ResetInvalidBrushSize();
 
             SetStrokePending(true);
