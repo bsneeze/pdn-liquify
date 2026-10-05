@@ -96,12 +96,7 @@
     <EmbeddedResource Include="images\colorwheel.png" />
   </ItemGroup>
 
-  <Target Name="LiquifyRenameLockedOutput" BeforeTargets="CoreCompile">
-    <PropertyGroup>
-      <LiquifyLockedStamp>$([System.DateTime]::Now.ToString("yyyyMMddHHmmss"))</LiquifyLockedStamp>
-    </PropertyGroup>
-    <Move SourceFiles="$(TargetPath)" DestinationFiles="$(TargetPath).$(LiquifyLockedStamp).locked" Condition="Exists('$(TargetPath)')" ContinueOnError="true" />
-  </Target>
+
 
   <PropertyGroup>
     <LiquifyEffectsDir>$(USERPROFILE)\Documents\paint.net App Files\Effects\</LiquifyEffectsDir>
