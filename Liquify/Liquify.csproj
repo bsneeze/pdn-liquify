@@ -7,6 +7,10 @@
     <AssemblyName>Liquify</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
+    <!-- Debug builds are optimized too. The mesh and canvas loops are several times slower without it,
+         which makes the "BETA" build feel much worse than what ships. Set to false to step through code. -->
+    <Optimize>true</Optimize>
+
     <!-- Where Paint.NET is installed. Override with -p:PdnDir=...\ (keep the trailing backslash). -->
     <PdnDir Condition="'$(PdnDir)' == ''">C:\Program Files\Paint.NET\</PdnDir>
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
@@ -78,7 +82,6 @@
   <ItemGroup>
     <EmbeddedResource Include="images\icon.png" />
     <EmbeddedResource Include="images\bloat.png" />
-    <EmbeddedResource Include="images\donate.png" />
     <EmbeddedResource Include="images\freeze.png" />
     <EmbeddedResource Include="images\gridlarge.png" />
     <EmbeddedResource Include="images\gridsmall.png" />
