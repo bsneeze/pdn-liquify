@@ -22,6 +22,8 @@ namespace pyrochild.effects.liquify
         public CanvasBackground background;
         public int backgroundColor; // ARGB, used when background is Color
         public bool showLayersAbove;
+        public int surroundColor; // ARGB of the area around the canvas; 0 for the default
+        public int meshGrid;      // 0 off, 1 fine, 2 coarse
 
         public ConfigToken()
         {
@@ -41,6 +43,8 @@ namespace pyrochild.effects.liquify
             this.background = toCopy.background;
             this.backgroundColor = toCopy.backgroundColor;
             this.showLayersAbove = toCopy.showLayersAbove;
+            this.surroundColor = toCopy.surroundColor;
+            this.meshGrid = toCopy.meshGrid;
         }
 
         public override object Clone()

@@ -152,9 +152,13 @@ namespace pyrochild.effects.liquify.tests
             token.background = CanvasBackground.AllLayersBeneath;
             token.backgroundColor = unchecked((int)0xFF102030);
             token.showLayersAbove = true;
+            token.surroundColor = unchecked((int)0xFF405060);
+            token.meshGrid = 2;
 
             ConfigToken copy = (ConfigToken)token.Clone();
             Assert.True(copy.showLayersAbove);
+            Assert.Equal(unchecked((int)0xFF405060), copy.surroundColor);
+            Assert.Equal(2, copy.meshGrid);
             Assert.Equal(CanvasBackground.AllLayersBeneath, copy.background);
             Assert.Equal(unchecked((int)0xFF102030), copy.backgroundColor);
         }

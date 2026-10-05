@@ -1413,6 +1413,15 @@ namespace pyrochild.effects.liquify
             BrushSize = token.size;
             ApplyBackground(token.background, token.backgroundColor);
             SetLayersAbove(token.showLayersAbove);
+
+            if (token.surroundColor != 0)
+            {
+                canvas.BackColor = Color.FromArgb(token.surroundColor);
+            }
+
+            meshSmall.Checked = token.meshGrid == 1;
+            meshLarge.Checked = token.meshGrid == 2;
+            UpdateGrid();
         }
 
         protected override void OnUpdateTokenFromDialog(ConfigToken token)
@@ -1423,6 +1432,8 @@ namespace pyrochild.effects.liquify
             token.mesh = mesh;
             StoreBackground(token);
             token.showLayersAbove = showLayersAbove;
+            token.surroundColor = canvas.BackColor.ToArgb();
+            token.meshGrid = meshSmall.Checked ? 1 : meshLarge.Checked ? 2 : 0;
         }
 
         private void ok_Click(object sender, EventArgs e)
