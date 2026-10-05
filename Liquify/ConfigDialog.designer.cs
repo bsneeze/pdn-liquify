@@ -24,6 +24,7 @@ namespace pyrochild.effects.liquify
                 if (components != null)
                     components.Dispose();
                 StopRenderer();
+                DisposeLayerBackgrounds();
                 if (historystack != null)
                     historystack.Dispose();
                 if (surface != null)

@@ -1,6 +1,7 @@
 using PaintDotNet;
 using pyrochild.effects.liquify;
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -17,6 +18,45 @@ namespace pyrochild.effects.common
     /// <param name="count">number of pixels in the row</param>
     /// <param name="scale">the zoom factor: canvas pixels per image pixel</param>
     public delegate void CanvasRowOverlay(IntPtr pixels, int canvasX, int canvasY, int count, float scale);
+
+    /// <summary>
+    /// An entry the owner adds to the canvas's "Background" menu.
+    /// </summary>
+    public sealed class CanvasBackgroundOption
+    {
+        public CanvasBackgroundOption(string name, Func<Surface> getSurface, Func<Image> getPreview = null)
+        {
+            Name = name;
+            GetSurface = getSurface;
+            GetPreview = getPreview;
+            Enabled = true;
+        }
+
+        /// <summary>
+        /// An entry that is listed but can't be picked, so the menu can say why something isn't on offer.
+        /// </summary>
+        public static CanvasBackgroundOption Unavailable(string name)
+        {
+            return new CanvasBackgroundOption(name, null) { Enabled = false };
+        }
+
+        public bool Enabled { get; private set; }
+
+        /// <summary>
+        /// Optional. Called each time the menu opens, for the small picture next to the entry, like
+        /// the color swatches the built-in entries have. The image stays the caller's.
+        /// </summary>
+        public Func<Image> GetPreview { get; private set; }
+
+        /// <summary>The menu text.</summary>
+        public string Name { get; private set; }
+
+        /// <summary>
+        /// Called when the entry is picked. Returns a surface the size of the canvas's own, which
+        /// stays the caller's to dispose.
+        /// </summary>
+        public Func<Surface> GetSurface { get; private set; }
+    }
 
     /// <summary>
     /// A scrollable, zoomable view of a Surface with a brush cursor, which raises mouse events in the
@@ -50,6 +90,10 @@ namespace pyrochild.effects.common
         private Brush outerCheckerBrush;
         private Brush canvasCheckerBrush;
         private CanvasRowOverlay rowOverlay;
+        private Surface backgroundSurface;
+        private CanvasBackgroundOption activeBackgroundOption;
+        private Size menuSwatchSize; // the menu's own image size, before it is widened for the check mark
+        private readonly List<CanvasBackgroundOption> backgroundOptions = new List<CanvasBackgroundOption>();
         private uint[] scaled; // scratch pixels for DrawComposited
         private int[] sourceColumns;
 
@@ -595,11 +639,20 @@ namespace pyrochild.effects.common
                     IntPtr dstScan0 = (IntPtr)scaledPixels;
                     int srcStride = surface.Stride;
 
+                    // the optional image behind the canvas's own, pixel for pixel
+                    Surface background = backgroundSurface;
+                    if (background != null && (background.IsDisposed || background.Size != surface.Size))
+                    {
+                        background = null;
+                    }
+                    IntPtr backScan0 = background != null ? background.Scan0.Pointer : IntPtr.Zero;
+                    int backStride = background != null ? background.Stride : 0;
 
                     Action<int> row = y =>
                     {
                         int sourceRow = (int)((2L * (clipTop + y) + 1) * imageHeight / (2 * canvasHeight));
                         uint* srcPixels = (uint*)((byte*)srcScan0 + (long)sourceRow * srcStride);
+                        uint* backPixels = backScan0 != IntPtr.Zero ? (uint*)((byte*)backScan0 + (long)sourceRow * backStride) : null;
                         uint* dstPixels = (uint*)dstScan0 + (long)y * clipWidth;
                         int celly = (clipTop + y) / cell;
 
@@ -611,6 +664,13 @@ namespace pyrochild.effects.common
                             if (alpha != 255)
                             {
                                 uint under = (((clipLeft + x) / cell + celly) & 1) == 0 ? light : dark;
+
+                                if (backPixels != null)
+                                {
+                                    uint back = backPixels[columns[x]];
+                                    under = BlendOver(back, back >> 24, under);
+                                }
+
                                 pixel = BlendOver(pixel, alpha, under);
                             }
 
@@ -812,6 +872,53 @@ namespace pyrochild.effects.common
                 canvasBackColor = value;
                 InvalidateCanvas();
             }
+        }
+
+        /// <summary>
+        /// Optional. An image the same size as Surface that shows through wherever Surface is
+        /// transparent, in place of the checkerboard (which still shows where this is transparent too).
+        /// The canvas does not take ownership of it. Setting it replaces any background color or image
+        /// picked from the menu.
+        /// </summary>
+        public Surface BackgroundSurface
+        {
+            get
+            {
+                return backgroundSurface;
+            }
+            set
+            {
+                bool changed = backgroundSurface != value;
+
+                backgroundSurface = value;
+                activeBackgroundOption = null; // SelectBackgroundOption sets it again afterwards
+                if (value != null)
+                {
+                    canvasBackgroundImage = null;
+                    canvasBackColor = Color.Transparent;
+                }
+                InvalidateCanvas();
+
+                if (changed && BackgroundSurfaceChanged != null)
+                {
+                    BackgroundSurfaceChanged(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Raised when BackgroundSurface changes, including when the user replaces it by picking a
+        /// color or image from the menu. An owner can use it to free a surface that is no longer shown.
+        /// </summary>
+        public event EventHandler BackgroundSurfaceChanged;
+
+        /// <summary>
+        /// Extra entries for the canvas's right-click "Background" menu. Picking one makes its surface
+        /// the BackgroundSurface.
+        /// </summary>
+        public IList<CanvasBackgroundOption> BackgroundOptions
+        {
+            get { return backgroundOptions; }
         }
 
         /// <summary>
@@ -1263,7 +1370,8 @@ namespace pyrochild.effects.common
         }
 
         // Right-clicking the canvas changes what shows through the image's transparent parts;
-        // right-clicking the area around it changes that area's color.
+        // right-clicking the area around it changes that area's color. The entry that matches the
+        // current background is checked.
         private void ShowContextMenu(Point location, bool onCanvas)
         {
             Action<Color> setColor = color =>
@@ -1271,6 +1379,7 @@ namespace pyrochild.effects.common
                 if (onCanvas)
                 {
                     canvasBackgroundImage = null;
+                    BackgroundSurface = null;
                     canvasBackColor = color;
                 }
                 else
@@ -1280,6 +1389,68 @@ namespace pyrochild.effects.common
                 this.Invalidate();
             };
 
+            // what the background is now, to check the matching entry
+            Color current = onCanvas ? canvasBackColor : this.BackColor;
+            bool plainColor = !onCanvas || (canvasBackgroundImage == null && backgroundSurface == null);
+            bool isTransparent = plainColor && current.A == 0;
+            bool isBlack = plainColor && current.ToArgb() == Color.Black.ToArgb();
+            bool isWhite = plainColor && current.ToArgb() == Color.White.ToArgb();
+            // the panel's default gray is 127 and the menu's is 128
+            bool isGray = plainColor && current.A == 255 && current.R == current.G && current.G == current.B && (current.R == 127 || current.R == 128);
+            bool isOtherColor = plainColor && !isTransparent && !isBlack && !isWhite && !isGray;
+
+            // Each entry's image is a check mark space followed by its swatch, drawn as one picture, and
+            // the menu's image column is made wide enough for both. The built-in ways of showing a
+            // check don't work here: on an entry with an image it is only a faint frame, and a separate
+            // check column pushes the swatches out of the shaded strip at the menu's edge.
+            if (menuSwatchSize.IsEmpty)
+            {
+                menuSwatchSize = contextMenu.ImageScalingSize; // already scaled for the screen's DPI
+            }
+            int swatch = menuSwatchSize.Height;
+            int gap = Math.Max(2, swatch / 8);
+            Size entryImageSize = new Size(swatch + gap + swatch, swatch);
+            contextMenu.ImageScalingSize = entryImageSize;
+
+            Func<string, Image, bool, EventHandler, ToolStripMenuItem> add = (text, image, isCurrent, onClick) =>
+            {
+                Bitmap entryImage = null;
+                if (image != null || isCurrent)
+                {
+                    entryImage = new Bitmap(entryImageSize.Width, entryImageSize.Height);
+                    using (Graphics g = Graphics.FromImage(entryImage))
+                    {
+                        if (isCurrent)
+                        {
+                            g.SmoothingMode = SmoothingMode.AntiAlias;
+                            using (Pen pen = new Pen(SystemColors.MenuText, Math.Max(1.6f, swatch / 9f)))
+                            {
+                                pen.StartCap = LineCap.Round;
+                                pen.EndCap = LineCap.Round;
+                                pen.LineJoin = LineJoin.Round;
+                                g.DrawLines(pen, new PointF[]
+                                {
+                                    new PointF(swatch * 0.20f, swatch * 0.52f),
+                                    new PointF(swatch * 0.42f, swatch * 0.74f),
+                                    new PointF(swatch * 0.82f, swatch * 0.26f)
+                                });
+                            }
+                        }
+
+                        if (image != null)
+                        {
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                            g.DrawImage(image, swatch + gap, 0, swatch, swatch);
+                        }
+                    }
+                }
+
+                ToolStripMenuItem item = new ToolStripMenuItem(text, entryImage, onClick);
+                contextMenu.Items.Add(item);
+                return item;
+            };
+
             contextMenu.Items.Clear();
             using (Surface sfc = new Surface(16, 16))
             {
@@ -1287,18 +1458,18 @@ namespace pyrochild.effects.common
                 contextMenu.Items.Add(new ToolStripSeparator());
 
                 if (onCanvas)
-                    contextMenu.Items.Add("Transparent", CreateCheckerboardTile(1f), (s, e) => setColor(Color.Transparent));
+                    add("Transparent", CreateCheckerboardTile(1f), isTransparent, (s, e) => setColor(Color.Transparent));
 
                 sfc.Fill(ColorBgra.Black);
-                contextMenu.Items.Add("Black", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) => setColor(Color.Black));
+                add("Black", new Bitmap(sfc.CreateAliasedBitmap()), isBlack, (s, e) => setColor(Color.Black));
 
                 sfc.Fill(ColorBgra.White);
-                contextMenu.Items.Add("White", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) => setColor(Color.White));
+                add("White", new Bitmap(sfc.CreateAliasedBitmap()), isWhite, (s, e) => setColor(Color.White));
 
                 sfc.Fill(ColorBgra.FromBgr(127, 127, 127));
-                contextMenu.Items.Add("Gray", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) => setColor(Color.Gray));
+                add("Gray", new Bitmap(sfc.CreateAliasedBitmap()), isGray, (s, e) => setColor(Color.Gray));
 
-                contextMenu.Items.Add("Other color...", new Bitmap(typeof(Liquify),"images.colorwheel.png"), (s, e) =>
+                add("Other color...", new Bitmap(typeof(Liquify),"images.colorwheel.png"), isOtherColor, (s, e) =>
                 {
                     ColorBgra c;
                     if (DialogResult.OK == ShowColorPicker(onCanvas ? canvasBackColor : this.BackColor, onCanvas, out c))
@@ -1309,31 +1480,78 @@ namespace pyrochild.effects.common
 
                 if (onCanvas)
                 {
-                    contextMenu.Items.Add("From clipboard", null, (s, e) =>
-                    {
-                        try
-                        {
-                            canvasBackgroundImage = Clipboard.GetImage();
-                            canvasBackColor = Color.Transparent;
-                            this.Invalidate();
-                        }
-                        catch { }
-                    });
+                    Image clipboardSwatch = null;
                     if (Clipboard.ContainsImage())
                     {
                         using (Surface fromcb = Surface.CopyFromBitmap((Bitmap)Clipboard.GetImage()))
                         {
                             sfc.FitSurface(ResamplingAlgorithm.SuperSampling, fromcb);
-                            contextMenu.Items[7].Image = new Bitmap(sfc.CreateAliasedBitmap());
+                            clipboardSwatch = new Bitmap(sfc.CreateAliasedBitmap());
                         }
                     }
-                    else
+
+                    ToolStripMenuItem fromClipboard = add("From clipboard", clipboardSwatch, canvasBackgroundImage != null, (s, e) =>
                     {
-                        contextMenu.Items[7].Enabled = false;
+                        try
+                        {
+                            canvasBackgroundImage = Clipboard.GetImage();
+                            BackgroundSurface = null;
+                            canvasBackColor = Color.Transparent;
+                            this.Invalidate();
+                        }
+                        catch { }
+                    });
+                    fromClipboard.Enabled = clipboardSwatch != null;
+
+                    // whatever else the owner offers, such as the layers under the one being edited
+                    foreach (CanvasBackgroundOption option in backgroundOptions)
+                    {
+                        CanvasBackgroundOption chosen = option;
+
+                        Image preview = null;
+                        if (chosen.Enabled && chosen.GetPreview != null)
+                        {
+                            // a missing picture shouldn't cost the user the menu
+                            try { preview = chosen.GetPreview(); } catch { }
+                        }
+
+                        ToolStripMenuItem item = add(chosen.Name, preview, ActiveBackgroundOption == chosen, (s, e) => SelectBackgroundOption(chosen));
+                        item.Enabled = chosen.Enabled;
                     }
                 }
             }
             contextMenu.Show(this, location);
+        }
+
+        /// <summary>
+        /// The entry from BackgroundOptions whose surface is the current background, if any.
+        /// </summary>
+        public CanvasBackgroundOption ActiveBackgroundOption
+        {
+            get { return backgroundSurface != null ? activeBackgroundOption : null; }
+        }
+
+        /// <summary>
+        /// Makes one of the BackgroundOptions the background, as picking it from the menu does.
+        /// </summary>
+        public void SelectBackgroundOption(CanvasBackgroundOption option)
+        {
+            if (option == null || !option.Enabled)
+            {
+                return;
+            }
+
+            Cursor previous = Cursor.Current;
+            Cursor.Current = Cursors.WaitCursor;
+            try
+            {
+                BackgroundSurface = option.GetSurface();
+                activeBackgroundOption = option;
+            }
+            finally
+            {
+                Cursor.Current = previous;
+            }
         }
 
         private DialogResult ShowColorPicker(Color current, bool alpha, out ColorBgra color)

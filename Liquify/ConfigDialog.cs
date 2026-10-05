@@ -688,12 +688,193 @@ namespace pyrochild.effects.liquify
 
             InitializeRenderer();
 
+            AddLayerBackgrounds();
+
             fitZoomPending = true;
             canvas.ZoomToFit();
 
             this.DesktopLocation = Owner.PointToScreen(new Point(0, 30));
             this.Size = new Size(Owner.ClientSize.Width, Owner.ClientSize.Height - 30);
             this.WindowState = Owner.WindowState;
+        }
+
+        // The canvas's "Background" menu can show the layers under the one being edited. A full-size
+        // picture of them is only kept while it is the background in use; the small previews next to
+        // the menu entries are made once, from a sample of each layer, and kept.
+        private Surface layerBackground;               // the one handed to the canvas, if any
+        private CanvasBackground layerBackgroundKind;  // which one that is
+        private CanvasBackgroundOption layerBeneathOption;
+        private CanvasBackgroundOption allLayersBeneathOption;
+        private Image layerBeneathPreview;
+        private Image allLayersBeneathPreview;
+
+        // a remembered choice that can't be shown on this layer, kept so that it isn't forgotten
+        private CanvasBackground unavailableBackground = CanvasBackground.Color;
+
+        private void AddLayerBackgrounds()
+        {
+            // layer 0 is the bottom of the stack
+            if (Environment.SourceLayerIndex <= 0)
+            {
+                canvas.BackgroundOptions.Add(CanvasBackgroundOption.Unavailable("Layer beneath (no layers beneath)"));
+                canvas.BackgroundOptions.Add(CanvasBackgroundOption.Unavailable("All layers beneath (no layers beneath)"));
+                return;
+            }
+
+            canvas.BackgroundSurfaceChanged += (s, e) => FreeUnusedLayerBackground();
+
+            layerBeneathOption = new CanvasBackgroundOption(
+                "Layer beneath",
+                () => UseLayerBackground(CanvasBackground.LayerBeneath),
+                () => GetLayerBackgroundPreview(CanvasBackground.LayerBeneath, ref layerBeneathPreview));
+
+            allLayersBeneathOption = new CanvasBackgroundOption(
+                "All layers beneath",
+                () => UseLayerBackground(CanvasBackground.AllLayersBeneath),
+                () => GetLayerBackgroundPreview(CanvasBackground.AllLayersBeneath, ref allLayersBeneathPreview));
+
+            canvas.BackgroundOptions.Add(layerBeneathOption);
+            canvas.BackgroundOptions.Add(allLayersBeneathOption);
+        }
+
+        // Which layers a background is made of: Layers[first] up to Layers[end], and whether hidden
+        // ones are left out.
+        private void GetLayerRange(CanvasBackground kind, out int first, out int end, out bool visibleOnly)
+        {
+            int index = Environment.SourceLayerIndex;
+
+            if (kind == CanvasBackground.LayerBeneath)
+            {
+                // just that layer, at its own opacity, whether or not it is currently hidden
+                first = index - 1;
+                end = index;
+                visibleOnly = false;
+            }
+            else
+            {
+                // as the document looks under this layer: hidden layers left out, blend modes applied
+                first = 0;
+                end = index;
+                visibleOnly = true;
+            }
+        }
+
+        // Called when a menu entry is picked. The canvas then makes the result its background, which
+        // raises BackgroundSurfaceChanged, which frees the one it replaces.
+        private Surface UseLayerBackground(CanvasBackground kind)
+        {
+            if (layerBackground == null || layerBackgroundKind != kind)
+            {
+                int first, end;
+                bool visibleOnly;
+                GetLayerRange(kind, out first, out end, out visibleOnly);
+
+                Surface previous = layerBackground;
+                layerBackground = LayerCompositor.Render(Environment.Document, first, end, visibleOnly);
+                layerBackgroundKind = kind;
+
+                if (previous != null)
+                {
+                    // the canvas is still showing it, so let go of that first
+                    canvas.BackgroundSurface = layerBackground;
+                    previous.Dispose();
+                }
+            }
+
+            return layerBackground;
+        }
+
+        private Image GetLayerBackgroundPreview(CanvasBackground kind, ref Image preview)
+        {
+            if (preview == null)
+            {
+                int first, end;
+                bool visibleOnly;
+                GetLayerRange(kind, out first, out end, out visibleOnly);
+
+                // from a few sampled rows of each layer, so opening the menu doesn't have to wait
+                // for full-size pictures
+                preview = LayerCompositor.RenderPreview(Environment.Document, first, end, visibleOnly);
+            }
+
+            return preview;
+        }
+
+        // The user picked something else from the menu (a color, the clipboard image), so the layer
+        // picture isn't being shown any more.
+        private void FreeUnusedLayerBackground()
+        {
+            if (layerBackground != null && canvas.BackgroundSurface != layerBackground)
+            {
+                layerBackground.Dispose();
+                layerBackground = null;
+            }
+        }
+
+        private void DisposeLayerBackgrounds()
+        {
+            canvas.BackgroundSurface = null;
+            FreeUnusedLayerBackground();
+
+            if (layerBeneathPreview != null)
+            {
+                layerBeneathPreview.Dispose();
+                layerBeneathPreview = null;
+            }
+
+            if (allLayersBeneathPreview != null)
+            {
+                allLayersBeneathPreview.Dispose();
+                allLayersBeneathPreview = null;
+            }
+        }
+
+        // The background the dialog was last closed with.
+        private void ApplyBackground(CanvasBackground background, int colorArgb)
+        {
+            CanvasBackgroundOption option =
+                background == CanvasBackground.LayerBeneath ? layerBeneathOption :
+                background == CanvasBackground.AllLayersBeneath ? allLayersBeneathOption :
+                null;
+
+            if (option != null)
+            {
+                canvas.SelectBackgroundOption(option);
+            }
+            else if (background != CanvasBackground.Color)
+            {
+                // there is nothing beneath this layer: show the default, but don't forget the choice
+                unavailableBackground = background;
+            }
+            else
+            {
+                Color color = Color.FromArgb(colorArgb);
+                canvas.CanvasBackColor = color.A == 0 ? Color.Transparent : color;
+            }
+        }
+
+        private void StoreBackground(ConfigToken token)
+        {
+            CanvasBackgroundOption active = canvas.ActiveBackgroundOption;
+
+            if (active != null && active == layerBeneathOption)
+            {
+                token.background = CanvasBackground.LayerBeneath;
+            }
+            else if (active != null && active == allLayersBeneathOption)
+            {
+                token.background = CanvasBackground.AllLayersBeneath;
+            }
+            else if (unavailableBackground != CanvasBackground.Color && canvas.CanvasBackColor.A == 0)
+            {
+                // it couldn't be shown this time and nothing else was picked in its place
+                token.background = unavailableBackground;
+            }
+            else
+            {
+                token.background = CanvasBackground.Color;
+                token.backgroundColor = canvas.CanvasBackColor.ToArgb();
+            }
         }
 
         private void brushSizeDecrement_Click(object sender, EventArgs e)
@@ -942,6 +1123,7 @@ namespace pyrochild.effects.liquify
             Pressure = token.pressure;
             Density = token.density;
             BrushSize = token.size;
+            ApplyBackground(token.background, token.backgroundColor);
         }
 
         protected override void OnUpdateTokenFromDialog(ConfigToken token)
@@ -950,6 +1132,7 @@ namespace pyrochild.effects.liquify
             token.density = Density;
             token.size = BrushSize;
             token.mesh = mesh;
+            StoreBackground(token);
         }
 
         private void ok_Click(object sender, EventArgs e)
