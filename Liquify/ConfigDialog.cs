@@ -201,6 +201,7 @@ namespace pyrochild.effects.liquify
                 }
             }
 
+            AddBackgroundMenus();
             InitializeUIImages();
             InitializeTooltips();
             UpdateStatus();
@@ -209,6 +210,27 @@ namespace pyrochild.effects.liquify
             // Paint.NET has already given the form its theme colors by now (in the base constructor),
             // so style the controls here too. Waiting for Load lets them show up light first.
             ThemeHelper.Apply(this);
+        }
+
+        // The background choices are also on the canvas's right-click menu, where few people look.
+        private void AddBackgroundMenus()
+        {
+            viewMenu.DropDownItems.Add(new ToolStripSeparator());
+            viewMenu.DropDownItems.Add(CreateBackgroundMenu("Canvas background", true));
+            viewMenu.DropDownItems.Add(CreateBackgroundMenu("Around the canvas", false));
+
+            // tooltips on a menu get in the way of the entries and submenus next to them
+            viewMenu.DropDown.ShowItemToolTips = false;
+        }
+
+        private ToolStripMenuItem CreateBackgroundMenu(string text, bool onCanvas)
+        {
+            ToolStripMenuItem item = new ToolStripMenuItem(text);
+
+            // filled each time it opens; the placeholder is what makes it a submenu until then
+            item.DropDownItems.Add(new ToolStripMenuItem("Transparent"));
+            item.DropDownOpening += (sender, e) => canvas.FillBackgroundMenu(item.DropDown, onCanvas);
+            return item;
         }
 
         private void InitializeUIImages()

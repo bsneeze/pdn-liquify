@@ -418,6 +418,32 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void The_background_choices_can_be_put_on_a_menu_of_the_owners()
+        {
+            WithCanvas(PartlyTransparentSurface, canvas =>
+            {
+                using (ContextMenuStrip menu = new ContextMenuStrip())
+                {
+                    menu.Items.Add("left over from last time");
+                    canvas.BackColor = Color.White;
+
+                    // the area around the canvas: plain colors only
+                    canvas.FillBackgroundMenu(menu, false);
+
+                    string[] names = new string[menu.Items.Count];
+                    for (int i = 0; i < names.Length; ++i)
+                    {
+                        names[i] = menu.Items[i].Text;
+                    }
+                    Assert.Equal(new[] { "Black", "White", "Gray", "Other color..." }, names);
+
+                    menu.Items[0].PerformClick();
+                    Assert.Equal(Color.Black.ToArgb(), canvas.BackColor.ToArgb());
+                }
+            });
+        }
+
+        [Fact]
         public void A_foreground_surface_is_drawn_over_the_image()
         {
             WithCanvas(PartlyTransparentSurface, canvas =>

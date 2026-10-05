@@ -121,6 +121,20 @@ namespace pyrochild.effects.common
             Style(form);
         }
 
+        // For a context menu, which isn't among any form's controls. Entries added to it later need
+        // the menu's ForeColor set on them; they don't inherit it.
+        public static void StyleMenu(ToolStripDropDown menu)
+        {
+            if (!isDarkMode)
+            {
+                return;
+            }
+
+            menu.Renderer = new DarkRenderer(new DarkColorTable(back, field, hover, border), fore) { RoundedEdges = false };
+            menu.BackColor = field;
+            menu.ForeColor = fore;
+        }
+
         private static void Style(Control c)
         {
             // Controls created after Paint.NET themed the form can still have dark text.

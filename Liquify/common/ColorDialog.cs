@@ -211,7 +211,18 @@ namespace pyrochild.effects.common
 
                 ResumeEvents();
             }
+
+            // every way of changing the color ends up setting the wheel's
+            if (ColorChanged != null)
+            {
+                ColorChanged(this, EventArgs.Empty);
+            }
         }
+
+        /// <summary>
+        /// Raised as the color changes while the dialog is open, so the owner can show it straight away.
+        /// </summary>
+        public event EventHandler ColorChanged;
 
         private void SetRgbSliders(ColorBgra c)
         {

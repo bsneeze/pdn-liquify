@@ -112,6 +112,7 @@ namespace pyrochild.effects.common
         private Surface backgroundSurface;
         private CanvasForegroundLayer[] foregroundLayers;
         private bool backgroundSurfaceHidden;
+        private bool previewingBackColor; // the color picker is open and showing its color on the canvas
         private float brushInnerFraction;
         private CanvasBackgroundOption activeBackgroundOption;
         private Size menuSwatchSize; // the menu's own image size, before it is widened for the check mark
@@ -678,7 +679,7 @@ namespace pyrochild.effects.common
                     int srcStride = surface.Stride;
 
                     // the optional image behind the canvas's own, pixel for pixel
-                    Surface background = backgroundSurfaceHidden ? null : backgroundSurface;
+                    Surface background = (backgroundSurfaceHidden || previewingBackColor) ? null : backgroundSurface;
                     if (background != null && (background.IsDisposed || background.Size != surface.Size))
                     {
                         background = null;
@@ -1235,6 +1236,7 @@ namespace pyrochild.effects.common
         void IDarkThemeable.ApplyDarkTheme(Color back, Color fore, Color field, Color border)
         {
             darkScrollbars = true;
+            ThemeHelper.StyleMenu(contextMenu);
             if (IsHandleCreated)
             {
                 SetWindowTheme(this.Handle, "DarkMode_Explorer", null);
@@ -1493,9 +1495,22 @@ namespace pyrochild.effects.common
         }
 
         // Right-clicking the canvas changes what shows through the image's transparent parts;
-        // right-clicking the area around it changes that area's color. The entry that matches the
-        // current background is checked.
+        // right-clicking the area around it changes that area's color.
         private void ShowContextMenu(Point location, bool onCanvas)
+        {
+            FillBackgroundMenu(contextMenu, onCanvas);
+            contextMenu.Items.Insert(0, new ToolStripLabel("Background") { ForeColor = contextMenu.ForeColor });
+            contextMenu.Items.Insert(1, new ToolStripSeparator());
+            contextMenu.Show(this, location);
+        }
+
+        /// <summary>
+        /// Replaces a menu's entries with the background choices, the same ones as the right-click
+        /// menu, so an owner can offer them somewhere easier to find. The entry that matches the
+        /// current background is checked.
+        /// </summary>
+        /// <param name="onCanvas">true for what shows through the image, false for the area around it</param>
+        public void FillBackgroundMenu(ToolStripDropDown menu, bool onCanvas)
         {
             Action<Color> setColor = color =>
             {
@@ -1533,7 +1548,7 @@ namespace pyrochild.effects.common
             int swatch = menuSwatchSize.Height;
             int gap = Math.Max(2, swatch / 8);
             Size entryImageSize = new Size(swatch + gap + swatch, swatch);
-            contextMenu.ImageScalingSize = entryImageSize;
+            menu.ImageScalingSize = entryImageSize;
 
             Func<string, Image, bool, EventHandler, ToolStripMenuItem> add = (text, image, isCurrent, onClick) =>
             {
@@ -1546,7 +1561,7 @@ namespace pyrochild.effects.common
                         if (isCurrent)
                         {
                             g.SmoothingMode = SmoothingMode.AntiAlias;
-                            using (Pen pen = new Pen(SystemColors.MenuText, Math.Max(1.6f, swatch / 9f)))
+                            using (Pen pen = new Pen(menu.ForeColor, Math.Max(1.6f, swatch / 9f)))
                             {
                                 pen.StartCap = LineCap.Round;
                                 pen.EndCap = LineCap.Round;
@@ -1570,16 +1585,18 @@ namespace pyrochild.effects.common
                 }
 
                 ToolStripMenuItem item = new ToolStripMenuItem(text, entryImage, onClick);
-                contextMenu.Items.Add(item);
+                item.ForeColor = menu.ForeColor; // a themed menu's color isn't inherited
+
+                // A submenu's image size is reset to the default when it opens on a high-DPI screen,
+                // which would squeeze the picture into a square, so don't depend on it.
+                item.ImageScaling = ToolStripItemImageScaling.None;
+                menu.Items.Add(item);
                 return item;
             };
 
-            contextMenu.Items.Clear();
+            menu.Items.Clear();
             using (Surface sfc = new Surface(16, 16))
             {
-                contextMenu.Items.Add(new ToolStripLabel("Background"));
-                contextMenu.Items.Add(new ToolStripSeparator());
-
                 if (onCanvas)
                     add("Transparent", CreateCheckerboardTile(1f), isTransparent, (s, e) => setColor(Color.Transparent));
 
@@ -1594,10 +1611,48 @@ namespace pyrochild.effects.common
 
                 add("Other color...", new Bitmap(typeof(Liquify),"images.colorwheel.png"), isOtherColor, (s, e) =>
                 {
+                    // The picker's color is shown as it changes. That is only a preview: whatever the
+                    // background was (which may be an image or a layer) is put back when the picker
+                    // closes, and the color is then applied for real if it was accepted.
+                    Color colorBefore = onCanvas ? canvasBackColor : this.BackColor;
+                    Image imageBefore = canvasBackgroundImage;
+
+                    Action<Color> preview = color =>
+                    {
+                        if (onCanvas)
+                        {
+                            canvasBackgroundImage = null;
+                            previewingBackColor = true;
+                            canvasBackColor = color;
+                        }
+                        else
+                        {
+                            this.BackColor = color;
+                        }
+                        this.Invalidate();
+                    };
+
                     ColorBgra c;
-                    if (DialogResult.OK == ShowColorPicker(onCanvas ? canvasBackColor : this.BackColor, onCanvas, out c))
+                    DialogResult result = ShowColorPicker(colorBefore, onCanvas, preview, out c);
+
+                    if (onCanvas)
+                    {
+                        canvasBackgroundImage = imageBefore;
+                        previewingBackColor = false;
+                        canvasBackColor = colorBefore;
+                    }
+                    else
+                    {
+                        this.BackColor = colorBefore;
+                    }
+
+                    if (result == DialogResult.OK)
                     {
                         setColor(c.ToColor());
+                    }
+                    else
+                    {
+                        this.Invalidate();
                     }
                 });
 
@@ -1643,7 +1698,6 @@ namespace pyrochild.effects.common
                     }
                 }
             }
-            contextMenu.Show(this, location);
         }
 
         /// <summary>
@@ -1677,11 +1731,14 @@ namespace pyrochild.effects.common
             }
         }
 
-        private DialogResult ShowColorPicker(Color current, bool alpha, out ColorBgra color)
+        private DialogResult ShowColorPicker(Color current, bool alpha, Action<Color> preview, out ColorBgra color)
         {
             using (ColorDialog cd = new ColorDialog(alpha))
             {
                 cd.Color = ColorBgra.FromColor(current);
+
+                // from here on, so that merely opening the picker changes nothing
+                cd.ColorChanged += (s, e) => preview(cd.Color.ToColor());
 
                 DialogResult result = cd.ShowDialog(this);
                 color = cd.Color;
