@@ -57,6 +57,9 @@ namespace pyrochild.effects.liquify
         // true from Load until the dialog has been shown; see the constructor
         private bool fitZoomPending;
 
+        // false until the dialog is on screen, so that setting up the brush doesn't flash it
+        private bool brushPreviewEnabled;
+
         // distance between the mesh grid's lines, in image pixels; 0 means the grid is off
         private float gridSpacing;
 
@@ -117,6 +120,7 @@ namespace pyrochild.effects.liquify
             {
                 canvas.ZoomToFit();
                 fitZoomPending = false;
+                brushPreviewEnabled = true;
             };
 
             this.Text = Liquify.StaticDialogName;
@@ -886,11 +890,23 @@ namespace pyrochild.effects.liquify
         private void OnPenChanged()
         {
             canvas.BrushSize = BrushSize;
+            ShowBrushPreview();
         }
 
         private void UpdateBrushInnerRing()
         {
             canvas.BrushInnerFraction = LiquifyRenderer.HalfStrengthRadius(density.Value);
+            ShowBrushPreview();
+        }
+
+        // The mouse is on the toolbar while the brush is being changed there, so show the brush
+        // on the canvas for a moment.
+        private void ShowBrushPreview()
+        {
+            if (brushPreviewEnabled)
+            {
+                canvas.ShowBrushPreview();
+            }
         }
 
         private void donate_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)

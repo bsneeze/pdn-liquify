@@ -513,7 +513,7 @@ namespace pyrochild.effects.common
                     g.Restore(state);
                 }
 
-                if (panelhasmouse && !panning && !spaceHeld)
+                if ((panelhasmouse || brushPreview) && !panning && !spaceHeld)
                 {
                     int scaledbrushradius = (int)(brushRadius * scale);
                     int left = (int)canvasmouselocation.X - scaledbrushradius - 1 + canvasBounds.X;
@@ -1792,6 +1792,50 @@ namespace pyrochild.effects.common
             canvashasmouse = false;
         }
 
+        // The brush circle normally follows the mouse, so it can't be seen while the mouse is on
+        // the controls that change it. ShowBrushPreview draws it in the middle of the view for a
+        // moment instead.
+        private bool brushPreview;
+        private Timer brushPreviewTimer;
+
+        /// <summary>
+        /// Shows the brush circle in the middle of the view for a moment, if the mouse isn't over
+        /// the panel. For when the brush is being changed from somewhere else.
+        /// </summary>
+        public void ShowBrushPreview()
+        {
+            if (panelhasmouse || !IsHandleCreated)
+            {
+                return;
+            }
+
+            if (brushPreviewTimer == null)
+            {
+                brushPreviewTimer = new Timer(components);
+                brushPreviewTimer.Interval = 1500;
+                brushPreviewTimer.Tick += (s, e) => EndBrushPreview();
+            }
+
+            Point location = CanvasLocation;
+            InvalidateBrush();
+            canvasmouselocation = new PointF(this.ClientSize.Width / 2 - location.X, this.ClientSize.Height / 2 - location.Y);
+            brushPreview = true;
+            InvalidateBrush();
+
+            brushPreviewTimer.Stop();
+            brushPreviewTimer.Start();
+        }
+
+        private void EndBrushPreview()
+        {
+            if (brushPreview)
+            {
+                brushPreviewTimer.Stop();
+                InvalidateBrush();
+                brushPreview = false;
+            }
+        }
+
         private void InvalidateBrush()
         {
             Point location = CanvasLocation;
@@ -1805,6 +1849,7 @@ namespace pyrochild.effects.common
 
         private void CanvasPanel_MouseEnter(object sender, System.EventArgs e)
         {
+            EndBrushPreview();
             panelhasmouse = true;
 
             // a key release can be missed while another window has focus, so check the real state
