@@ -39,6 +39,11 @@ namespace pyrochild.effects.liquify
 
             if (e.Button == MouseButtons.Left)
             {
+                if (buffer != null)
+                {
+                    buffer.Dispose();
+                }
+
                 // size, pressure, density and mode are fixed for the whole stroke
                 strokesize = e.Size;
                 radius = strokesize / 2;
@@ -59,23 +64,52 @@ namespace pyrochild.effects.liquify
             }
         }
 
+        protected override void OnMouseUp(QueuedToolEventArgs args)
+        {
+            LiquifyEventArgs e = args as LiquifyEventArgs;
+
+            if (e.Button == MouseButtons.Left && buffer != null)
+            {
+                buffer.Dispose();
+                buffer = null;
+            }
+        }
+
+
+        protected override bool CanCoalesce(QueuedToolEventArgs earlier, QueuedToolEventArgs later)
+        {
+            LiquifyEventArgs a = earlier as LiquifyEventArgs;
+            LiquifyEventArgs b = later as LiquifyEventArgs;
+
+            if (a == null || b == null || a.Button != b.Button)
+            {
+                return false;
+            }
+
+            if (a.Button != MouseButtons.Left || buffer == null)
+            {
+                return true;
+            }
+
+            // mid-stroke, only skip points that haven't moved a full brush step, so the path barely changes
+            return Utility.Distance(lastmouse, a.Location) <= spacing;
+        }
+
         protected override void OnMouseMove(QueuedToolEventArgs args)
         {
             LiquifyEventArgs e = args as LiquifyEventArgs;
 
-            bool stroking = e.Button == MouseButtons.Left && buffer != null;
-            int size = stroking ? strokesize : e.Size;
-            Size brushsize = new Size(size, size);
-
-            Rectangle invrect = new Rectangle(new Point(lastmouse.X - radius, lastmouse.Y - radius), brushsize);
-            invrect = Rectangle.Union(invrect, new Rectangle(new Point(e.X - radius, e.Y - radius), brushsize));
-
-            if (!stroking)
+            if (e.Button != MouseButtons.Left || buffer == null)
             {
-                OnInvalidated(invrect);
+                // not in a stroke: nothing changes, so only keep track of where the next one starts
                 lastmouse = e.Location;
                 return;
             }
+
+            Size brushsize = new Size(strokesize, strokesize);
+
+            Rectangle invrect = new Rectangle(new Point(lastmouse.X - radius, lastmouse.Y - radius), brushsize);
+            invrect = Rectangle.Union(invrect, new Rectangle(new Point(e.X - radius, e.Y - radius), brushsize));
 
             float dist = Utility.Distance(lastmouse, e.Location);
             if (dist == 0) dist = 1;

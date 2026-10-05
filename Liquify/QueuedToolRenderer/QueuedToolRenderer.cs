@@ -130,6 +130,17 @@ namespace pyrochild.effects.common
                         break;
                     }
                     args = eventQueue.Dequeue();
+
+                    // when the queue is backed up, skip mouse moves that a later one makes redundant
+                    while (args != null
+                        && args.EventType == QueuedToolEventType.MouseMove
+                        && eventQueue.Count > 0
+                        && eventQueue.Peek() != null
+                        && eventQueue.Peek().EventType == QueuedToolEventType.MouseMove
+                        && CanCoalesce(args, eventQueue.Peek()))
+                    {
+                        args = eventQueue.Dequeue();
+                    }
                 }
                 didsomething = true;
                 if (args != null)
@@ -234,6 +245,15 @@ namespace pyrochild.effects.common
 
         protected virtual void OnMouseDown(QueuedToolEventArgs args)
         {
+        }
+
+        /// <summary>
+        /// Called on the render thread when two MouseMove events are next to each other in the queue.
+        /// Return true to drop the earlier one and go straight to the later one.
+        /// </summary>
+        protected virtual bool CanCoalesce(QueuedToolEventArgs earlier, QueuedToolEventArgs later)
+        {
+            return false;
         }
 
         private void QueuedAbort()
