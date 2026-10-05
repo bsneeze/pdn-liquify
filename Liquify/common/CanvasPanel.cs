@@ -1,4 +1,5 @@
 using PaintDotNet;
+using PaintDotNet.Rendering;
 using pyrochild.effects.liquify;
 using System;
 using System.Collections.Generic;
@@ -59,6 +60,24 @@ namespace pyrochild.effects.common
     }
 
     /// <summary>
+    /// A picture drawn over the canvas's image, such as a layer that lies in front of the one
+    /// being edited.
+    /// </summary>
+    public sealed class CanvasForegroundLayer
+    {
+        /// <param name="surface">the same size as the canvas's own; it stays the caller's to dispose</param>
+        /// <param name="op">how it is blended onto what is under it; null for a plain overlay</param>
+        public CanvasForegroundLayer(Surface surface, CompositionOp op = null)
+        {
+            Surface = surface;
+            Op = op;
+        }
+
+        public Surface Surface { get; private set; }
+        public CompositionOp Op { get; private set; }
+    }
+
+    /// <summary>
     /// A scrollable, zoomable view of a Surface with a brush cursor, which raises mouse events in the
     /// surface's coordinates.
     /// The image ("the canvas") is drawn straight onto this control, and scrolling is done here too:
@@ -91,6 +110,8 @@ namespace pyrochild.effects.common
         private Brush canvasCheckerBrush;
         private CanvasRowOverlay rowOverlay;
         private Surface backgroundSurface;
+        private CanvasForegroundLayer[] foregroundLayers;
+        private bool backgroundSurfaceHidden;
         private float brushInnerFraction;
         private CanvasBackgroundOption activeBackgroundOption;
         private Size menuSwatchSize; // the menu's own image size, before it is widened for the check mark
@@ -657,13 +678,29 @@ namespace pyrochild.effects.common
                     int srcStride = surface.Stride;
 
                     // the optional image behind the canvas's own, pixel for pixel
-                    Surface background = backgroundSurface;
+                    Surface background = backgroundSurfaceHidden ? null : backgroundSurface;
                     if (background != null && (background.IsDisposed || background.Size != surface.Size))
                     {
                         background = null;
                     }
                     IntPtr backScan0 = background != null ? background.Scan0.Pointer : IntPtr.Zero;
                     int backStride = background != null ? background.Stride : 0;
+
+                    // and the optional ones in front of it, bottom first
+                    CanvasForegroundLayer[] foreground = foregroundLayers;
+                    bool foregroundHasOps = false;
+                    if (foreground != null)
+                    {
+                        foreach (CanvasForegroundLayer layer in foreground)
+                        {
+                            if (layer.Surface.IsDisposed || layer.Surface.Size != surface.Size)
+                            {
+                                foreground = null;
+                                break;
+                            }
+                            foregroundHasOps |= layer.Op != null;
+                        }
+                    }
 
                     Action<int> row = y =>
                     {
@@ -692,6 +729,44 @@ namespace pyrochild.effects.common
                             }
 
                             dstPixels[x] = pixel;
+                        }
+
+                        if (foreground != null)
+                        {
+                            // a blend operation works on whole rows, so the layer's row is first
+                            // scaled the same way as the image's
+                            uint* scaledLayer = stackalloc uint[foregroundHasOps ? clipWidth : 1];
+
+                            foreach (CanvasForegroundLayer layer in foreground)
+                            {
+                                uint* forePixels = (uint*)((byte*)layer.Surface.Scan0.Pointer + (long)sourceRow * layer.Surface.Stride);
+
+                                if (layer.Op != null)
+                                {
+                                    for (int x = 0; x < clipWidth; ++x)
+                                    {
+                                        scaledLayer[x] = forePixels[columns[x]];
+                                    }
+
+                                    layer.Op.Apply((ColorBgra*)dstPixels, (ColorBgra*)scaledLayer, clipWidth);
+                                    continue;
+                                }
+
+                                for (int x = 0; x < clipWidth; ++x)
+                                {
+                                    uint front = forePixels[columns[x]];
+                                    uint frontAlpha = front >> 24;
+
+                                    if (frontAlpha == 255)
+                                    {
+                                        dstPixels[x] = front;
+                                    }
+                                    else if (frontAlpha != 0)
+                                    {
+                                        dstPixels[x] = BlendOver(front, frontAlpha, dstPixels[x]);
+                                    }
+                                }
+                            }
                         }
 
                         if (overlay != null)
@@ -940,6 +1015,42 @@ namespace pyrochild.effects.common
                 {
                     BackgroundSurfaceChanged(this, EventArgs.Empty);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Leaves BackgroundSurface out of the picture without changing which background is chosen.
+        /// </summary>
+        public bool BackgroundSurfaceHidden
+        {
+            get
+            {
+                return backgroundSurfaceHidden;
+            }
+            set
+            {
+                if (backgroundSurfaceHidden != value)
+                {
+                    backgroundSurfaceHidden = value;
+                    InvalidateCanvas();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Optional. Pictures drawn over the image, bottom first, each blended onto everything
+        /// under it (the image, and whatever shows through it) as the canvas paints.
+        /// </summary>
+        public CanvasForegroundLayer[] ForegroundLayers
+        {
+            get
+            {
+                return foregroundLayers;
+            }
+            set
+            {
+                foregroundLayers = (value != null && value.Length > 0) ? value : null;
+                InvalidateCanvas();
             }
         }
 

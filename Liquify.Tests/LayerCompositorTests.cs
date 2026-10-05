@@ -151,10 +151,55 @@ namespace pyrochild.effects.liquify.tests
 
             token.background = CanvasBackground.AllLayersBeneath;
             token.backgroundColor = unchecked((int)0xFF102030);
+            token.showLayersAbove = true;
 
             ConfigToken copy = (ConfigToken)token.Clone();
+            Assert.True(copy.showLayersAbove);
             Assert.Equal(CanvasBackground.AllLayersBeneath, copy.background);
             Assert.Equal(unchecked((int)0xFF102030), copy.backgroundColor);
+        }
+
+        [Fact]
+        public void Normal_layers_above_share_a_picture_and_a_blended_one_gets_its_own()
+        {
+            var foreground = new System.Collections.Generic.List<pyrochild.effects.common.CanvasForegroundLayer>();
+            try
+            {
+                using (Surface red = Filled(Red))
+                using (Surface blue = Filled(Blue))
+                {
+                    // two normal layers: one picture, the upper one on top
+                    LayerCompositor.AppendForeground(foreground, red, LayerBlendMode.Normal, 1f);
+                    LayerCompositor.AppendForeground(foreground, blue, LayerBlendMode.Normal, 0.5f);
+                    Assert.Single(foreground);
+                    Assert.Null(foreground[0].Op);
+                    Assert.InRange(foreground[0].Surface[3, 3].R, 125, 130);
+                    Assert.InRange(foreground[0].Surface[3, 3].B, 125, 130);
+
+                    // a multiply layer can't be folded in: it needs what is under it at paint time
+                    LayerCompositor.AppendForeground(foreground, red, LayerBlendMode.Multiply, 1f);
+                    Assert.Equal(2, foreground.Count);
+                    Assert.NotNull(foreground[1].Op);
+                    Assert.NotSame(red, foreground[1].Surface); // a copy: the caller reuses its surface
+                    Assert.True(foreground[1].Surface[3, 3] == Red);
+
+                    // and a normal layer over that starts a new picture
+                    LayerCompositor.AppendForeground(foreground, blue, LayerBlendMode.Normal, 1f);
+                    Assert.Equal(3, foreground.Count);
+                    Assert.Null(foreground[2].Op);
+                }
+
+                Assert.Null(LayerCompositor.CreateOp(LayerBlendMode.Normal, 1f));
+                Assert.NotNull(LayerCompositor.CreateOp(LayerBlendMode.Normal, 0.5f));
+                Assert.NotNull(LayerCompositor.CreateOp(LayerBlendMode.Screen, 1f));
+            }
+            finally
+            {
+                foreach (var layer in foreground)
+                {
+                    layer.Surface.Dispose();
+                }
+            }
         }
 
         [Fact]

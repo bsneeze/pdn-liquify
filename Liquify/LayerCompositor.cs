@@ -63,6 +63,78 @@ namespace pyrochild.effects.liquify
             return result;
         }
 
+        /// <summary>
+        /// The visible layers from Layers[first] up to but not including Layers[end], bottom first, as
+        /// pictures for the canvas to draw over the image.
+        /// </summary>
+        public static List<pyrochild.effects.common.CanvasForegroundLayer> RenderForeground(IEffectDocumentInfo document, int first, int end)
+        {
+            SizeInt32 size = document.Size;
+            IReadOnlyList<IEffectLayerInfo> layers = document.Layers;
+            List<pyrochild.effects.common.CanvasForegroundLayer> result = new List<pyrochild.effects.common.CanvasForegroundLayer>();
+
+            using (Surface layerSurface = new Surface(size.Width, size.Height))
+            {
+                for (int i = first; i < end; ++i)
+                {
+                    IEffectLayerInfo layer = layers[i];
+                    if (!layer.Visible)
+                    {
+                        continue;
+                    }
+
+                    using (IEffectInputBitmap<ColorBgra32> bitmap = layer.GetBitmapBgra32())
+                    {
+                        CopyToSurface(bitmap, layerSurface);
+                    }
+
+                    AppendForeground(result, layerSurface, layer.BlendMode, layer.Opacity);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Adds one layer to a foreground being built up from the bottom. A layer with a blend mode
+        /// has to be blended onto whatever is under it when the canvas paints, so it gets a picture
+        /// of its own. Runs of normal layers don't: laid over each other first and over the image
+        /// afterwards, they come out the same, so each run shares one picture.
+        /// </summary>
+        public static void AppendForeground(List<pyrochild.effects.common.CanvasForegroundLayer> foreground, Surface layer, LayerBlendMode blendMode, float opacity)
+        {
+            if (blendMode != LayerBlendMode.Normal)
+            {
+                foreground.Add(new pyrochild.effects.common.CanvasForegroundLayer(layer.Clone(), CreateOp(blendMode, opacity)));
+                return;
+            }
+
+            if (foreground.Count == 0 || foreground[foreground.Count - 1].Op != null)
+            {
+                Surface run = new Surface(layer.Width, layer.Height);
+                run.Fill(ColorBgra.FromBgra(0, 0, 0, 0));
+                foreground.Add(new pyrochild.effects.common.CanvasForegroundLayer(run));
+            }
+
+            BlendLayer(foreground[foreground.Count - 1].Surface, layer, LayerBlendMode.Normal, opacity);
+        }
+
+        /// <summary>
+        /// The operation that blends a layer with this blend mode and opacity onto what is under it,
+        /// or null when that is a plain overlay (normal, fully opaque).
+        /// </summary>
+        public static CompositionOp CreateOp(LayerBlendMode blendMode, float opacity)
+        {
+            byte opacityByte = (byte)Math.Round(255 * Math.Clamp(opacity, 0f, 1f));
+
+            if (blendMode == LayerBlendMode.Normal && opacityByte == 255)
+            {
+                return null;
+            }
+
+            return LayerBlendModeUtil.CreateCompositionOp(blendMode, opacityByte);
+        }
+
         public const int PreviewSize = 16;
 
         /// <summary>

@@ -418,6 +418,90 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void A_foreground_surface_is_drawn_over_the_image()
+        {
+            WithCanvas(PartlyTransparentSurface, canvas =>
+            {
+                canvas.ZoomFactor = 1f;
+
+                using (Surface foreground = new Surface(400, 300))
+                {
+                    // opaque blue on the top half, nothing on the bottom half
+                    foreground.Fill(ColorBgra.FromBgra(0, 0, 0, 0));
+                    foreground.Fill(new Rectangle(0, 0, 400, 150), ColorBgra.FromBgra(230, 30, 10, 255));
+
+                    Color opaqueBefore = DrawnAt(canvas, 350, 250);
+                    Color clearBefore = DrawnAt(canvas, 50, 250);
+
+                    canvas.ForegroundLayers = new[] { new CanvasForegroundLayer(foreground) };
+
+                    // it covers the image and the checkerboard alike
+                    foreach (int x in new[] { 50, 200, 350 })
+                    {
+                        Color covered = DrawnAt(canvas, x, 50);
+                        Assert.Equal(Color.FromArgb(10, 30, 230).ToArgb(), Color.FromArgb(covered.R, covered.G, covered.B).ToArgb());
+                    }
+
+                    // and leaves everything alone where it is transparent
+                    Assert.Equal(opaqueBefore.ToArgb(), DrawnAt(canvas, 350, 250).ToArgb());
+                    Assert.Equal(clearBefore.ToArgb(), DrawnAt(canvas, 50, 250).ToArgb());
+
+                    canvas.ForegroundLayers = null;
+                    Assert.Equal(opaqueBefore.ToArgb(), DrawnAt(canvas, 350, 50).ToArgb());
+                }
+            });
+        }
+
+        [Fact]
+        public void A_foreground_layer_with_a_blend_mode_is_blended_onto_what_is_under_it()
+        {
+            WithCanvas(PartlyTransparentSurface, canvas =>
+            {
+                canvas.ZoomFactor = 1f;
+
+                using (Surface gray = new Surface(400, 300))
+                using (Surface black = new Surface(400, 300))
+                {
+                    gray.Fill(ColorBgra.FromBgra(128, 128, 128, 255));
+                    black.Fill(ColorBgra.FromBgra(0, 0, 0, 255));
+
+                    // the opaque part of the image is red 200
+                    Color before = DrawnAt(canvas, 350, 50);
+                    Assert.Equal(200, before.R);
+
+                    // multiplying by mid gray halves it, where a plain overlay would have covered it
+                    canvas.ForegroundLayers = new[]
+                    {
+                        new CanvasForegroundLayer(gray, PaintDotNet.LayerBlendModeUtil.CreateCompositionOp(LayerBlendMode.Multiply, 255))
+                    };
+                    Color multiplied = DrawnAt(canvas, 350, 50);
+                    Assert.InRange(multiplied.R, 98, 102);
+                    Assert.Equal(0, multiplied.G);
+
+                    // layers apply bottom first: black laid over that hides it
+                    canvas.ForegroundLayers = new[]
+                    {
+                        new CanvasForegroundLayer(gray, PaintDotNet.LayerBlendModeUtil.CreateCompositionOp(LayerBlendMode.Multiply, 255)),
+                        new CanvasForegroundLayer(black)
+                    };
+                    Color covered = DrawnAt(canvas, 350, 50);
+                    Assert.Equal(0, covered.R);
+
+                    // hiding the background surface doesn't touch the choice of background
+                    canvas.BackgroundSurface = gray;
+                    canvas.ForegroundLayers = null;
+                    canvas.BackgroundSurfaceHidden = true;
+                    Color hidden = DrawnAt(canvas, 50, 50);
+                    Assert.True(hidden.R >= 191, "expected checkerboard, drew " + hidden);
+                    Assert.Same(gray, canvas.BackgroundSurface);
+                    canvas.BackgroundSurfaceHidden = false;
+                    Assert.Equal(128, DrawnAt(canvas, 50, 50).R);
+                    canvas.BackgroundSurface = null;
+                }
+            });
+        }
+
+        [Fact]
         public void The_owner_is_told_when_the_background_surface_changes()
         {
             WithCanvas(PartlyTransparentSurface, canvas =>

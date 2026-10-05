@@ -21,6 +21,7 @@ namespace pyrochild.effects.liquify
         // has no effect on the result; it is here so the dialog opens the way it was left.
         public CanvasBackground background;
         public int backgroundColor; // ARGB, used when background is Color
+        public bool showLayersAbove;
 
         public ConfigToken()
         {
@@ -39,6 +40,7 @@ namespace pyrochild.effects.liquify
             this.density = toCopy.density;
             this.background = toCopy.background;
             this.backgroundColor = toCopy.backgroundColor;
+            this.showLayersAbove = toCopy.showLayersAbove;
         }
 
         public override object Clone()

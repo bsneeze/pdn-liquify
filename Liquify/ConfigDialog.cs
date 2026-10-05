@@ -63,6 +63,9 @@ namespace pyrochild.effects.liquify
         // true while the "show original" key is held: the canvas shows the source instead of the preview
         private bool comparing;
 
+        // true while the "all layers" button or key is held: the canvas shows the whole document
+        private bool compositing;
+
         private float DpiScale
         {
             get { return this.DeviceDpi / 96f; }
@@ -140,6 +143,9 @@ namespace pyrochild.effects.liquify
             original.MouseDown += (originalSender, originalArgs) => SetComparing(true);
             original.MouseUp += (originalSender, originalArgs) => SetComparing(false);
             original.MouseLeave += (originalSender, originalArgs) => SetComparing(false);
+            allLayers.MouseDown += (allSender, allArgs) => SetCompositing(true);
+            allLayers.MouseUp += (allSender, allArgs) => SetCompositing(false);
+            allLayers.MouseLeave += (allSender, allArgs) => SetCompositing(false);
 
             if (dpiScale > 1.01f)
             {
@@ -277,6 +283,7 @@ namespace pyrochild.effects.liquify
             tooltip.SetToolTip(invertMask, "Invert frozen area");
             viewMenu.AutoToolTip = false;
             original.ToolTipText = "Hold to see the original image (O)";
+            allLayers.ToolTipText = "Hold to see every visible layer of the document, with this layer's changes and without the tint or the grid (A)";
             undo.ToolTipText = "Undo (Ctrl+Z)";
             redo.ToolTipText = "Redo (Ctrl+Y)";
             brushSizeIncrement.ToolTipText = "Increase brush size (], or Ctrl+] for 5)";
@@ -322,7 +329,7 @@ namespace pyrochild.effects.liquify
         private void RenderPreview(Rectangle rect)
         {
             // a fully transparent mask color leaves the image untinted
-            ColorBgra maskColor = showMask.Checked ? ColorBgra.Red : ColorBgra.Red.NewAlpha(0);
+            ColorBgra maskColor = (showMask.Checked && !compositing) ? ColorBgra.Red : ColorBgra.Red.NewAlpha(0);
             mesh.Render(surface, source, rect, maskColor);
         }
 
@@ -361,7 +368,7 @@ namespace pyrochild.effects.liquify
         {
             float spacing = gridSpacing;
 
-            if (spacing > 0 && !comparing && mesh != null)
+            if (spacing > 0 && !comparing && !compositing && mesh != null)
             {
                 mesh.DrawGridRow(pixels, canvasX, canvasY, count, scale, spacing, 0.5f / scale);
             }
@@ -378,7 +385,7 @@ namespace pyrochild.effects.liquify
         // While the key is held the canvas shows the untouched source image.
         private void SetComparing(bool compare)
         {
-            if (comparing == compare || source == null)
+            if (comparing == compare || source == null || compositing)
             {
                 return;
             }
@@ -394,14 +401,88 @@ namespace pyrochild.effects.liquify
             {
                 SetComparing(false);
             }
+            else if (e.KeyCode == Keys.A)
+            {
+                SetCompositing(false);
+            }
 
             base.OnKeyUp(e);
+        }
+
+        // While its button is held the canvas shows the document as it will look: the layers beneath,
+        // this layer with its own blend mode and opacity, and the layers above. The canvas's image
+        // becomes the layers beneath, and the preview is drawn over it as the first foreground layer.
+        private Surface layersBeneathSurface; // made on first use and kept, so later presses are instant
+
+        private void SetCompositing(bool composite)
+        {
+            if (compositing == composite || source == null || (composite && comparing))
+            {
+                return;
+            }
+
+            compositing = composite;
+
+            if (composite)
+            {
+                Cursor previous = Cursor.Current;
+                Cursor.Current = Cursors.WaitCursor;
+                try
+                {
+                    int index = Environment.SourceLayerIndex;
+                    IEffectLayerInfo layer = Environment.Document.Layers[index];
+
+                    // the "all layers beneath" background is the same picture, if it is in use
+                    Surface beneath = (layerBackground != null && layerBackgroundKind == CanvasBackground.AllLayersBeneath)
+                        ? layerBackground
+                        : layersBeneathSurface;
+                    if (beneath == null)
+                    {
+                        beneath = layersBeneathSurface = LayerCompositor.Render(Environment.Document, 0, index, true);
+                    }
+
+                    List<CanvasForegroundLayer> layers = new List<CanvasForegroundLayer>();
+                    layers.Add(new CanvasForegroundLayer(surface, LayerCompositor.CreateOp(layer.BlendMode, layer.Opacity)));
+                    if (HasLayersAbove)
+                    {
+                        EnsureLayersAbove();
+                        layers.AddRange(layersAboveLayers);
+                    }
+
+                    if (showMask.Checked)
+                    {
+                        RenderPreview(source.Bounds); // without the tint
+                    }
+
+                    canvas.BackgroundSurfaceHidden = true;
+                    canvas.ForegroundLayers = layers.ToArray();
+                    canvas.Surface = beneath;
+                }
+                finally
+                {
+                    Cursor.Current = previous;
+                }
+            }
+            else
+            {
+                if (showMask.Checked)
+                {
+                    RenderPreview(source.Bounds); // with the tint again
+                }
+
+                canvas.BackgroundSurfaceHidden = false;
+                canvas.ForegroundLayers = (showLayersAbove && layersAboveLayers != null) ? layersAboveLayers.ToArray() : null;
+                canvas.Surface = surface;
+            }
+
+            UpdateStatus();
         }
 
         protected override void OnDeactivate(EventArgs e)
         {
             // the key release goes to whichever window has focus by then
             SetComparing(false);
+            SetCompositing(false);
             base.OnDeactivate(e);
         }
 
@@ -502,6 +583,10 @@ namespace pyrochild.effects.liquify
                     case Keys.O:
                         // held down: this repeats, and OnKeyUp ends it
                         SetComparing(true);
+                        return true;
+
+                    case Keys.A:
+                        SetCompositing(true);
                         return true;
                 }
             }
@@ -681,6 +766,10 @@ namespace pyrochild.effects.liquify
             {
                 status.Text = "Showing the original image.";
             }
+            else if (compositing)
+            {
+                status.Text = "Showing all layers: the document as it will look with this layer's changes.";
+            }
             else
             {
                 status.Text = GetToolHint(mode) + "      " + hints;
@@ -780,6 +869,12 @@ namespace pyrochild.effects.liquify
             InitializeRenderer();
 
             AddLayerBackgrounds();
+
+            if (!HasLayersAbove)
+            {
+                layersAbove.Enabled = false;
+                layersAbove.Text = "Layers above (none)";
+            }
 
             fitZoomPending = true;
             canvas.ZoomToFit();
@@ -907,6 +1002,14 @@ namespace pyrochild.effects.liquify
             canvas.BackgroundSurface = null;
             FreeUnusedLayerBackground();
 
+            FreeLayersAbove();
+
+            if (layersBeneathSurface != null)
+            {
+                layersBeneathSurface.Dispose();
+                layersBeneathSurface = null;
+            }
+
             if (layerBeneathPreview != null)
             {
                 layerBeneathPreview.Dispose();
@@ -918,6 +1021,79 @@ namespace pyrochild.effects.liquify
                 allLayersBeneathPreview.Dispose();
                 allLayersBeneathPreview = null;
             }
+        }
+
+        // The View menu can lay the layers above the one being edited over the canvas, to judge the
+        // result as it will look in the document. The canvas blends them onto the image as it
+        // paints, each with its own blend mode (see LayerCompositor.AppendForeground).
+        private List<CanvasForegroundLayer> layersAboveLayers;
+
+        // the remembered setting, kept as it was when this layer has nothing above it
+        private bool showLayersAbove;
+
+        private bool HasLayersAbove
+        {
+            get { return Environment.SourceLayerIndex < Environment.Document.Layers.Count - 1; }
+        }
+
+        private void SetLayersAbove(bool show)
+        {
+            showLayersAbove = show;
+
+            if (!HasLayersAbove)
+            {
+                return;
+            }
+
+            layersAbove.Checked = show;
+
+            if (show)
+            {
+                EnsureLayersAbove();
+                canvas.ForegroundLayers = layersAboveLayers.ToArray();
+            }
+            else
+            {
+                FreeLayersAbove();
+            }
+        }
+
+        private void EnsureLayersAbove()
+        {
+            if (layersAboveLayers != null)
+            {
+                return;
+            }
+
+            Cursor previous = Cursor.Current;
+            Cursor.Current = Cursors.WaitCursor;
+            try
+            {
+                layersAboveLayers = LayerCompositor.RenderForeground(Environment.Document, Environment.SourceLayerIndex + 1, Environment.Document.Layers.Count);
+            }
+            finally
+            {
+                Cursor.Current = previous;
+            }
+        }
+
+        private void FreeLayersAbove()
+        {
+            canvas.ForegroundLayers = null;
+
+            if (layersAboveLayers != null)
+            {
+                foreach (CanvasForegroundLayer layer in layersAboveLayers)
+                {
+                    layer.Surface.Dispose();
+                }
+                layersAboveLayers = null;
+            }
+        }
+
+        private void layersAbove_Click(object sender, EventArgs e)
+        {
+            SetLayersAbove(layersAbove.Checked);
         }
 
         // The background the dialog was last closed with.
@@ -1214,6 +1390,7 @@ namespace pyrochild.effects.liquify
             Density = token.density;
             BrushSize = token.size;
             ApplyBackground(token.background, token.backgroundColor);
+            SetLayersAbove(token.showLayersAbove);
         }
 
         protected override void OnUpdateTokenFromDialog(ConfigToken token)
@@ -1223,6 +1400,7 @@ namespace pyrochild.effects.liquify
             token.size = BrushSize;
             token.mesh = mesh;
             StoreBackground(token);
+            token.showLayersAbove = showLayersAbove;
         }
 
         private void ok_Click(object sender, EventArgs e)

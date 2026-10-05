@@ -63,7 +63,10 @@ namespace pyrochild.effects.liquify
             this.showMask = new System.Windows.Forms.ToolStripMenuItem();
             this.meshSmall = new System.Windows.Forms.ToolStripMenuItem();
             this.meshLarge = new System.Windows.Forms.ToolStripMenuItem();
+            this.viewSeparator = new System.Windows.Forms.ToolStripSeparator();
+            this.layersAbove = new System.Windows.Forms.ToolStripMenuItem();
             this.original = new System.Windows.Forms.ToolStripButton();
+            this.allLayers = new System.Windows.Forms.ToolStripButton();
             this.settingStrip = new DoubleBufferedToolStrip();
             this.brushSizeSeparator = new System.Windows.Forms.ToolStripSeparator();
             this.brushSizeLabel = new System.Windows.Forms.ToolStripLabel();
@@ -277,7 +280,8 @@ namespace pyrochild.effects.liquify
             this.zoomIn,
             this.toolStripSeparator3,
             this.viewMenu,
-            this.original});
+            this.original,
+            this.allLayers});
             this.settingStrip.Location = new System.Drawing.Point(0, 0);
             this.settingStrip.Name = "settingStrip";
             this.settingStrip.Size = new System.Drawing.Size(624, 25);
@@ -400,7 +404,9 @@ namespace pyrochild.effects.liquify
             this.viewMenu.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.showMask,
             this.meshSmall,
-            this.meshLarge});
+            this.meshLarge,
+            this.viewSeparator,
+            this.layersAbove});
             this.viewMenu.Name = "viewMenu";
             this.viewMenu.Size = new System.Drawing.Size(45, 22);
             this.viewMenu.Text = "View";
@@ -432,12 +438,32 @@ namespace pyrochild.effects.liquify
             this.meshLarge.Text = "Mesh grid, coarse";
             this.meshLarge.Click += new System.EventHandler(this.mesh_Click);
             // 
+            // viewSeparator
+            // 
+            this.viewSeparator.Name = "viewSeparator";
+            this.viewSeparator.Size = new System.Drawing.Size(177, 6);
+            // 
+            // layersAbove
+            // 
+            this.layersAbove.CheckOnClick = true;
+            this.layersAbove.Name = "layersAbove";
+            this.layersAbove.Size = new System.Drawing.Size(180, 22);
+            this.layersAbove.Text = "Layers above";
+            this.layersAbove.Click += new System.EventHandler(this.layersAbove_Click);
+            // 
             // original
             // 
             this.original.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
             this.original.Name = "original";
             this.original.Size = new System.Drawing.Size(55, 22);
             this.original.Text = "Original";
+            // 
+            // allLayers
+            // 
+            this.allLayers.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.allLayers.Name = "allLayers";
+            this.allLayers.Size = new System.Drawing.Size(62, 22);
+            this.allLayers.Text = "All layers";
             // 
             // panel1
             // 
@@ -592,7 +618,10 @@ namespace pyrochild.effects.liquify
         private Button resetAll;
         private ToolStripDropDownButton viewMenu;
         private ToolStripMenuItem showMask;
+        private ToolStripSeparator viewSeparator;
+        private ToolStripMenuItem layersAbove;
         private ToolStripButton original;
+        private ToolStripButton allLayers;
         private ToolStripMenuItem meshSmall;
         private ToolStripMenuItem meshLarge;
     }
