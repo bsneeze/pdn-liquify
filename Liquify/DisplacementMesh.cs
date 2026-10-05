@@ -25,6 +25,7 @@ namespace pyrochild.effects.liquify
         long bytes;
         MemoryBlock scan0;
         int width, height;
+        int xstep, ystep;
 
         public DisplacementMesh(Size size)
             : this(size.Width, size.Height)
@@ -46,14 +47,18 @@ namespace pyrochild.effects.liquify
             }
             try
             {
-                stride = width * System.Runtime.InteropServices.Marshal.SizeOf(typeof(DisplacementVector));
-                bytes = height * stride;
+                stride = checked(width * System.Runtime.InteropServices.Marshal.SizeOf(typeof(DisplacementVector)));
+                bytes = (long)height * stride;
             }
             catch (OverflowException ex)
             {
                 throw new OutOfMemoryException("Dimensions are too large - not enough memory, width=" + width.ToString() + ", height=" + height.ToString(), ex);
             }
             scan0 = new MemoryBlock(bytes);
+
+            // a 1 pixel wide or tall mesh has no neighbor to interpolate with
+            xstep = width > 1 ? 1 : 0;
+            ystep = height > 1 ? width : 0;
         }
 
         public unsafe DisplacementVector this[int x, int y]
@@ -98,7 +103,7 @@ namespace pyrochild.effects.liquify
 
         public unsafe DisplacementVector* GetPointAddressUnchecked(int x, int y)
         {
-            return unchecked(x + (DisplacementVector*)(((byte*)scan0.VoidStar) + (y * stride)));
+            return unchecked(x + (DisplacementVector*)(((byte*)scan0.VoidStar) + ((long)y * stride)));
         }
 
         public unsafe void Render(ISurface<ColorBgra> dst, ISurface<ColorBgra> src, Rectangle rect)
@@ -253,7 +258,7 @@ namespace pyrochild.effects.liquify
             if (x >= width - 1)
             {
                 x = width - 1;
-                x0 = width - 2;
+                x0 = Math.Max(width - 2, 0);
             }
             else
             {
@@ -264,7 +269,7 @@ namespace pyrochild.effects.liquify
             if (y >= height - 1)
             {
                 y = height - 1;
-                y0 = height - 2;
+                y0 = Math.Max(height - 2, 0);
             }
             else
             {
@@ -276,11 +281,11 @@ namespace pyrochild.effects.liquify
 
             DisplacementVector*
                 tl = GetPointAddressUnchecked(x0, y0),
-                bl = tl + width;
+                bl = tl + ystep;
 
             DisplacementVector
-                t = DisplacementVector.Lerp(*tl, *(tl + 1), factorX),
-                b = DisplacementVector.Lerp(*bl, *(bl + 1), factorX);
+                t = DisplacementVector.Lerp(*tl, *(tl + xstep), factorX),
+                b = DisplacementVector.Lerp(*bl, *(bl + xstep), factorX);
 
             return DisplacementVector.Lerp(t, b, y - y0);
         }
