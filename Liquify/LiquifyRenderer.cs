@@ -11,9 +11,11 @@ namespace pyrochild.effects.liquify
         int meshwidth;
         int meshheight;
         Point lastmouse;
+        int strokesize;
         int radius;
         float pressure;
         float[] density;
+        LiquifyMode mode;
         DisplacementMesh buffer;
         float remainingSpace;
 
@@ -27,9 +29,7 @@ namespace pyrochild.effects.liquify
 
         protected override void OnMouseHold(QueuedToolEventArgs args)
         {
-            LiquifyEventArgs e = args as LiquifyEventArgs;
-
-            if (e.Mode != LiquifyMode.Push)
+            if (mode != LiquifyMode.Push)
             {
                 remainingSpace = 0;
             }
@@ -42,10 +42,13 @@ namespace pyrochild.effects.liquify
 
             if (e.Button == MouseButtons.Left)
             {
-                radius = e.Size / 2;
+                // size, pressure, density and mode are fixed for the whole stroke
+                strokesize = e.Size;
+                radius = strokesize / 2;
                 remainingSpace = 0;
-                buffer = new DisplacementMesh(e.Size, e.Size);
+                buffer = new DisplacementMesh(strokesize, strokesize);
                 pressure = e.Pressure;
+                mode = e.Mode;
                 density = new float[radius];
 
                 float densityexp = 2 - 2 * e.Density;
@@ -62,12 +65,15 @@ namespace pyrochild.effects.liquify
         {
             LiquifyEventArgs e = args as LiquifyEventArgs;
 
-            Rectangle invrect = new Rectangle(lastmouse.X - radius, lastmouse.Y - radius, e.Size, e.Size);
-            invrect = Rectangle.Union(invrect, new Rectangle(e.X - radius, e.Y - radius, e.Size, e.Size));
+            bool stroking = e.Button == MouseButtons.Left && buffer != null;
+            int size = stroking ? strokesize : e.Size;
+
+            Rectangle invrect = new Rectangle(lastmouse.X - radius, lastmouse.Y - radius, size, size);
+            invrect = Rectangle.Union(invrect, new Rectangle(e.X - radius, e.Y - radius, size, size));
             
-            if (e.Button == MouseButtons.Left && buffer != null)
+            if (stroking)
             {
-                Size brushsize = new Size(e.Size, e.Size);
+                Size brushsize = new Size(size, size);
                 DisplacementVector* meshptr0 = (DisplacementVector*)mesh.Scan0;
                 DisplacementVector* bufferptr0 = (DisplacementVector*)buffer.Scan0;
                 DisplacementVector* meshptr;
@@ -81,7 +87,7 @@ namespace pyrochild.effects.liquify
                 
                 DisplacementVector displace = DisplacementVector.Zero;
 
-                int spacing = radius / 4;
+                int spacing = Math.Max(1, radius / 4);
                 float f;
                 for (f = remainingSpace; f < dist && !IsAborted; f += spacing)
                 {
@@ -95,7 +101,7 @@ namespace pyrochild.effects.liquify
                     for (int y = clippedRect.Top; y < clippedRect.Bottom; ++y)
                     {
                         meshptr = meshptr0 + meshwidth * y + clippedRect.Left;
-                        bufferptr = bufferptr0 + e.Size * (y - dstRect.Top) + clippedRect.Left - dstRect.Left;
+                        bufferptr = bufferptr0 + size * (y - dstRect.Top) + clippedRect.Left - dstRect.Left;
                         int yc = y - dstRect.Top - radius;
                         int xc;
                         int densityindex;
@@ -112,7 +118,7 @@ namespace pyrochild.effects.liquify
                                 
                                 *bufferptr = *meshptr;
 
-                                switch (e.Mode)
+                                switch (mode)
                                 {
                                     case LiquifyMode.Push:
                                         displace.X = -amount * spacing * u.X;
@@ -170,7 +176,7 @@ namespace pyrochild.effects.liquify
                     for (int y = clippedRect.Top; y < clippedRect.Bottom; ++y)
                     {
                         meshptr = meshptr0 + meshwidth * y + clippedRect.Left;
-                        bufferptr = bufferptr0 + e.Size * (y - dstRect.Top) + clippedRect.Left - dstRect.Left;
+                        bufferptr = bufferptr0 + size * (y - dstRect.Top) + clippedRect.Left - dstRect.Left;
 
                         int yc = y - dstRect.Top - radius;
                         int xc;

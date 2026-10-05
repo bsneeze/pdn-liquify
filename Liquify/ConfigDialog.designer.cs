@@ -262,6 +262,7 @@ namespace pyrochild.effects.liquify
             this.brushSize.Size = new System.Drawing.Size(44, 23);
             this.brushSize.Validating += new System.ComponentModel.CancelEventHandler(this.brushSize_Validating);
             this.brushSize.TextChanged += new System.EventHandler(this.brushSize_Validating);
+            this.brushSize.LostFocus += new System.EventHandler(this.brushSize_LostFocus);
             // 
             // brushSizeIncrement
             // 

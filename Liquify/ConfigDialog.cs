@@ -27,6 +27,7 @@ namespace pyrochild.effects.liquify
         private SliderControl pressure, density;
         private const int minPenSize = 2;
         private const int maxPenSize = 1500;
+        private int lastValidBrushSize = 50;
         private int[] brushSizes =
             { 
                 2, 3, 4, 5, 6, 7, 8, 9, 10, 
@@ -296,29 +297,40 @@ namespace pyrochild.effects.liquify
         private void brushSize_Validating(object sender, EventArgs e)
         {
             float penSize;
-            bool valid = float.TryParse(this.brushSize.Text, out penSize);
 
-            if (!valid)
+            if (TryParseBrushSize(out penSize))
             {
-                this.brushSize.BackColor = Color.Red;
+                // Clear the error, if any
+                this.brushSize.BackColor = ThemeHelper.FieldBackColor;
+                this.brushSize.ToolTipText = string.Empty;
+                lastValidBrushSize = (int)penSize;
+                OnPenChanged();
             }
             else
             {
-                if (penSize < minPenSize)
-                {
-                    this.brushSize.BackColor = Color.Red;
-                }
-                else if (penSize > maxPenSize)
-                {
-                    this.brushSize.BackColor = Color.Red;
-                }
-                else
-                {
-                    // Clear the error, if any
-                    this.brushSize.BackColor = ThemeHelper.FieldBackColor;
-                    this.brushSize.ToolTipText = string.Empty;
-                    OnPenChanged();
-                }
+                this.brushSize.BackColor = Color.Red;
+            }
+        }
+
+        private bool TryParseBrushSize(out float penSize)
+        {
+            return float.TryParse(this.brushSize.Text, out penSize)
+                && penSize >= minPenSize
+                && penSize <= maxPenSize;
+        }
+
+        private void brushSize_LostFocus(object sender, EventArgs e)
+        {
+            ResetInvalidBrushSize();
+        }
+
+        // Puts the last good size back if the box holds something that isn't one.
+        private void ResetInvalidBrushSize()
+        {
+            float penSize;
+            if (!TryParseBrushSize(out penSize))
+            {
+                BrushSize = lastValidBrushSize;
             }
         }
 
@@ -481,19 +493,15 @@ namespace pyrochild.effects.liquify
         {
             get
             {
-                int width;
+                float width;
 
-                try
-                {
-                    width = (int)float.Parse(this.brushSize.Text);
-                }
-
-                catch (FormatException)
+                if (!float.TryParse(this.brushSize.Text, out width) || float.IsNaN(width))
                 {
                     width = 30;
                 }
 
-                return width;
+                // the text box only flags out-of-range input, so clamp here: the renderer can't handle sizes below 2
+                return (int)Math.Clamp(width, minPenSize, maxPenSize);
             }
             set
             {
@@ -542,6 +550,9 @@ namespace pyrochild.effects.liquify
 
         private void canvas_CanvasMouseDown(object sender, CanvasMouseEventArgs e)
         {
+            // clicking the canvas doesn't take focus away from the size box, so check it here too
+            ResetInvalidBrushSize();
+
             renderer.AddEvent(
                 new LiquifyEventArgs(
                     QueuedToolEventType.MouseDown,
