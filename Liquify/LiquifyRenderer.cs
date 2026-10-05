@@ -60,6 +60,10 @@ namespace pyrochild.effects.liquify
                     density[i] = (float)Math.Pow(1 - (float)i / radius, densityexp);
                 }
 
+                // A stroke starts where the button went down. lastmouse is normally there already from
+                // the hover moves, but not if the view was scrolled or zoomed under a still mouse.
+                lastmouse = e.Location;
+
                 OnMouseMove(args);
             }
         }
