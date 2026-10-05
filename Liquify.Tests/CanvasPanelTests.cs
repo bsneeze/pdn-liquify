@@ -159,14 +159,51 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
-        public void Zoom_to_fit_picks_the_largest_level_that_shows_the_whole_image()
+        public void Zoom_to_fit_fills_the_view_with_the_whole_image()
         {
             WithCanvas(1000, 800, canvas =>
             {
-                // 800x600 less a margin holds 72% of 1000x800; the nearest level below that is 66%
+                // 800x600 less a margin holds about 72% of 1000x800, which is between two zoom levels
                 canvas.ZoomToFit();
-                Assert.Equal(0.66f, canvas.ZoomFactor);
+                Assert.True(canvas.ZoomedToFit);
+                Assert.InRange(canvas.ZoomFactor, 0.67f, 0.75f);
                 Assert.Equal(Point.Empty, canvas.ScrollPosition);
+
+                // the whole image is in view, and one of its sides nearly fills it
+                Assert.True(800 * canvas.ZoomFactor < canvas.Height);
+                Assert.True(800 * canvas.ZoomFactor > canvas.Height - 60);
+
+                // it follows the panel's size until another zoom is set
+                float before = canvas.ZoomFactor;
+                canvas.Size = new Size(canvas.Width, canvas.Height - 100);
+                Assert.True(canvas.ZoomFactor < before);
+                Assert.True(canvas.ZoomedToFit);
+
+                canvas.ZoomFactor = 0.5f;
+                Assert.False(canvas.ZoomedToFit);
+                canvas.Size = new Size(canvas.Width, canvas.Height + 100);
+                Assert.Equal(0.5f, canvas.ZoomFactor);
+            });
+        }
+
+        [Fact]
+        public void Zooming_in_or_out_from_a_fitted_zoom_goes_to_the_neighbouring_level()
+        {
+            WithCanvas(1000, 800, canvas =>
+            {
+                canvas.ZoomToFit(); // about 72%
+                canvas.ZoomIn();
+                Assert.Equal(1f, canvas.ZoomFactor);
+
+                canvas.ZoomToFit();
+                canvas.ZoomOut();
+                Assert.Equal(0.66f, canvas.ZoomFactor);
+
+                // and from a level, one level at a time as before
+                canvas.ZoomOut();
+                Assert.Equal(0.5f, canvas.ZoomFactor);
+                canvas.ZoomIn();
+                Assert.Equal(0.66f, canvas.ZoomFactor);
             });
         }
 

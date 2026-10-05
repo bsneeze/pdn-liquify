@@ -382,7 +382,7 @@ namespace pyrochild.effects.liquify
             this.zoom.AutoSize = false;
             this.zoom.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.zoom.Name = "zoom";
-            this.zoom.Size = new System.Drawing.Size(72, 23);
+            this.zoom.Size = new System.Drawing.Size(88, 23);
             this.zoom.SelectedIndexChanged += new System.EventHandler(this.zoom_SelectedIndexChanged);
             // 
             // zoomIn

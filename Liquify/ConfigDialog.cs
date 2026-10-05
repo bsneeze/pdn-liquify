@@ -189,6 +189,8 @@ namespace pyrochild.effects.liquify
 
                 this.zoom.Items.Add(zoomItemString);
             }
+            // the last entry is "fit"; its text gains the percentage while it is the zoom in use
+            this.zoom.Items.Add(fitZoomText);
             this.zoom.ComboBox.ResumeLayout(false);
             this.zoom.Text = percent100;
 
@@ -341,9 +343,36 @@ namespace pyrochild.effects.liquify
             rendermodes.Add(thaw, LiquifyMode.Thaw);
         }
 
+        private const string fitZoomText = "Fit";
+        private bool updatingZoomBox;
+
         private void canvas_ZoomFactorChanged(object sender, EventArgs e)
         {
-            zoom.SelectedItem = string.Format("{0}%", canvas.ZoomFactor * 100);
+            int fitIndex = CanvasPanel.ZoomFactors.Length;
+
+            // changing the box's entries and selection here must not come back as a zoom request
+            updatingZoomBox = true;
+            try
+            {
+                if (canvas.ZoomedToFit)
+                {
+                    zoom.Items[fitIndex] = string.Format("{0} ({1:0}%)", fitZoomText, canvas.ZoomFactor * 100);
+                    zoom.SelectedIndex = fitIndex;
+                }
+                else
+                {
+                    zoom.SelectedIndex = Array.IndexOf(CanvasPanel.ZoomFactors, canvas.ZoomFactor);
+                    if (!fitZoomText.Equals(zoom.Items[fitIndex]))
+                    {
+                        zoom.Items[fitIndex] = fitZoomText;
+                    }
+                }
+            }
+            finally
+            {
+                updatingZoomBox = false;
+            }
+
             UpdateGrid();
         }
 
@@ -1401,8 +1430,19 @@ namespace pyrochild.effects.liquify
 
         private void zoom_SelectedIndexChanged(object sender, EventArgs e)
         {
-            if (zoom.SelectedIndex >= 0)
+            if (updatingZoomBox || zoom.SelectedIndex < 0)
+            {
+                return;
+            }
+
+            if (zoom.SelectedIndex >= CanvasPanel.ZoomFactors.Length)
+            {
+                canvas.ZoomToFit();
+            }
+            else
+            {
                 canvas.ZoomFactor = CanvasPanel.ZoomFactors[zoom.SelectedIndex];
+            }
         }
 
 

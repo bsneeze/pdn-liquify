@@ -1125,15 +1125,39 @@ namespace pyrochild.effects.common
             }
             set
             {
-                if (scale != value)
-                {
-                    scale = value;
-                    UpdateSize();
-                    InvalidateSelection();
-                    OnZoomFactorChanged();
-                    PerformLayout();
-                    Invalidate();
-                }
+                SetZoom(value, false);
+            }
+        }
+
+        private bool zoomedToFit;
+
+        /// <summary>
+        /// True while the zoom is the one ZoomToFit chose. The image is then fitted again whenever
+        /// the panel is resized, until some other zoom is set.
+        /// </summary>
+        public bool ZoomedToFit
+        {
+            get { return zoomedToFit; }
+        }
+
+        private void SetZoom(float value, bool fit)
+        {
+            bool fitChanged = zoomedToFit != fit;
+            zoomedToFit = fit;
+
+            if (scale != value)
+            {
+                scale = value;
+                UpdateSize();
+                InvalidateSelection();
+                OnZoomFactorChanged();
+                PerformLayout();
+                Invalidate();
+            }
+            else if (fitChanged)
+            {
+                // the same number, but owners show a fitted zoom differently
+                OnZoomFactorChanged();
             }
         }
 
@@ -1371,7 +1395,8 @@ namespace pyrochild.effects.common
         }
 
         /// <summary>
-        /// Picks the largest zoom level, up to 100%, that shows the whole image.
+        /// Zooms so that the whole image just fits in the panel, but never beyond 100%. The result
+        /// is usually not one of ZoomFactors.
         /// </summary>
         public void ZoomToFit()
         {
@@ -1380,21 +1405,13 @@ namespace pyrochild.effects.common
                 return;
             }
 
+            // wider than canvasMargin, so that the fitted image never needs scrollbars
             int margin = (int)Math.Ceiling(12 * this.DeviceDpi / 96f);
             float fit = Math.Min(
                 (this.Width - 2 * margin) / (float)surface.Width,
                 (this.Height - 2 * margin) / (float)surface.Height);
 
-            float best = ZoomFactors[0];
-            foreach (float factor in ZoomFactors)
-            {
-                if (factor <= fit && factor <= 1)
-                {
-                    best = factor;
-                }
-            }
-
-            ZoomFactor = best;
+            SetZoom(Math.Clamp(fit, ZoomFactors[0], 1f), true);
         }
 
         // Releases of the button that started a drag are acted on a moment later, and dropped if the
@@ -1796,6 +1813,11 @@ namespace pyrochild.effects.common
 
         private void CanvasPanel_Resize(object sender, System.EventArgs e)
         {
+            if (zoomedToFit)
+            {
+                ZoomToFit();
+            }
+
             // the canvas is centered when it fits, so it may have moved
             UpdateScrollbars();
             this.Invalidate();
@@ -1843,26 +1865,30 @@ namespace pyrochild.effects.common
                 ZoomFactorChanged(this, EventArgs.Empty);
         }
 
+        // The next level down or up from wherever the zoom is, which after ZoomToFit is usually
+        // between two levels.
         public void ZoomOut()
         {
-            if (scale > ZoomFactors[0])
-                for (int i = 1; i < ZoomFactors.Length; ++i)
-                    if (scale == ZoomFactors[i])
-                    {
-                        ZoomFactor = ZoomFactors[i - 1];
-                        break;
-                    }
+            for (int i = ZoomFactors.Length - 1; i >= 0; --i)
+            {
+                if (ZoomFactors[i] < scale * 0.999f)
+                {
+                    ZoomFactor = ZoomFactors[i];
+                    break;
+                }
+            }
         }
 
         public void ZoomIn()
         {
-            if (scale < ZoomFactors[ZoomFactors.Length - 1])
-                for (int i = 0; i < ZoomFactors.Length - 1; ++i)
-                    if (scale == ZoomFactors[i])
-                    {
-                        ZoomFactor = ZoomFactors[i + 1];
-                        break;
-                    }
+            for (int i = 0; i < ZoomFactors.Length; ++i)
+            {
+                if (ZoomFactors[i] > scale * 1.001f)
+                {
+                    ZoomFactor = ZoomFactors[i];
+                    break;
+                }
+            }
         }
 
         public void PerformMouseWheel(MouseEventArgs e)
