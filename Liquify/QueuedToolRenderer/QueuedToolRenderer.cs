@@ -59,6 +59,11 @@ namespace pyrochild.effects.common
 
         public void AddEvent(QueuedToolEventArgs args)
         {
+            if (disposed)
+            {
+                return;
+            }
+
             lock (eventQueue)
             {
                 eventQueue.Enqueue(args);
@@ -68,6 +73,11 @@ namespace pyrochild.effects.common
 
         public void AddEvents(IEnumerable<QueuedToolEventArgs> args)
         {
+            if (disposed)
+            {
+                return;
+            }
+
             lock (eventQueue)
             {
                 foreach(QueuedToolEventArgs arg in args)
@@ -297,10 +307,26 @@ namespace pyrochild.effects.common
         private bool disposed = false;
         public bool Disposed { get { return disposed; } }
 
+        /// <summary>
+        /// Aborts whatever is queued and waits for the render thread to finish, so after this returns
+        /// no more events are raised. Event handlers must not block on the disposing thread.
+        /// </summary>
         public void Dispose()
         {
+            if (disposed)
+            {
+                return;
+            }
+
             Abort();
             disposed = true;
+
+            Thread thread = renderThread;
+            if (thread != null && thread != Thread.CurrentThread)
+            {
+                thread.Join();
+            }
+
             OnDispose();
         }
 

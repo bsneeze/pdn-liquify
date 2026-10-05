@@ -75,6 +75,15 @@ namespace pyrochild.effects.liquify
             }
         }
 
+        protected override void OnDispose()
+        {
+            // the render thread has stopped by now
+            if (buffer != null)
+            {
+                buffer.Dispose();
+                buffer = null;
+            }
+        }
 
         protected override bool CanCoalesce(QueuedToolEventArgs earlier, QueuedToolEventArgs later)
         {

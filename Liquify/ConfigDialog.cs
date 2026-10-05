@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace pyrochild.effects.liquify
@@ -37,6 +38,13 @@ namespace pyrochild.effects.liquify
         private DisplacementMesh mesh;
         private Dictionary<Control, LiquifyMode> rendermodes;
         private LiquifyMode mode;
+
+        // true from the moment a mouse-down is queued until the renderer has finished that stroke.
+        // The render thread owns the mesh for that time, so undo, redo, load and save have to wait.
+        private bool strokePending;
+
+        // set once the dialog is closing; the render thread's callbacks check it and back off
+        private volatile bool closing;
 
         private float DpiScale
         {
@@ -205,7 +213,6 @@ namespace pyrochild.effects.liquify
             renderer = new LiquifyRenderer(mesh);
 
             renderer.Invalidated += new InvalidateEventHandler(renderer_Invalidated);
-            renderer.MouseDown += new QueuedToolEventHandler(renderer_MouseDown);
             renderer.MouseUp += new QueuedToolEventHandler(renderer_MouseUp);
 
             rendermodes = new Dictionary<Control, LiquifyMode>();
@@ -227,43 +234,80 @@ namespace pyrochild.effects.liquify
 
         void renderer_MouseUp(object sender, QueuedToolEventArgs e)
         {
+            // Runs on the render thread. The history item has to be captured before the renderer touches
+            // the mesh again, so wait for the UI thread to do it, but give up if the dialog closes meanwhile:
+            // the UI thread is then waiting for this thread to stop.
+            if (closing)
+            {
+                return;
+            }
+
+            ManualResetEventSlim done = new ManualResetEventSlim(false);
             try
             {
-                if (this.InvokeRequired)
+                this.BeginInvoke(new Action(() =>
                 {
-                    Action<object, QueuedToolEventArgs> action = renderer_MouseUp;
-                    this.Invoke(action, new object[] { sender, e });
-                }
-                else
+                    try
+                    {
+                        if (!closing)
+                        {
+                            historystack.AddHistoryItem(mesh, renderer.PopTotalInvalidRect());
+                            SetStrokePending(false);
+                        }
+                    }
+                    finally
+                    {
+                        done.Set();
+                    }
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                // the window is already gone
+                return;
+            }
+
+            while (!done.Wait(50))
+            {
+                if (closing)
                 {
-                    historystack.AddHistoryItem(mesh, renderer.PopTotalInvalidRect());
-                    UpdateHistoryButtons(false);
-                    ok.Enabled = true;
+                    return;
                 }
             }
-            catch (ObjectDisposedException) { }
         }
 
-        void renderer_MouseDown(object sender, QueuedToolEventArgs e)
+        private void SetStrokePending(bool pending)
         {
-            try
+            strokePending = pending;
+            UpdateHistoryButtons();
+            ok.Enabled = !pending;
+            load.Enabled = !pending;
+            save.Enabled = !pending;
+        }
+
+        // Stops the render thread and waits for it, so nothing is still drawing when the surfaces go away.
+        private void StopRenderer()
+        {
+            closing = true;
+            if (renderer != null)
             {
-                if (this.InvokeRequired)
-                {
-                    Action<object, QueuedToolEventArgs> action = renderer_MouseDown;
-                    this.Invoke(action, new object[] { sender, e });
-                }
-                else
-                {
-                    UpdateHistoryButtons(true);
-                    ok.Enabled = false;
-                }
+                renderer.Dispose();
             }
-            catch (ObjectDisposedException) { }
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            StopRenderer();
+            base.OnFormClosed(e);
         }
 
         private void renderer_Invalidated(object sender, InvalidateEventArgs e)
         {
+            if (closing)
+            {
+                return;
+            }
+
             mesh.Render(surface, source, e.InvalidRect, ColorBgra.Red);
             canvas.InvalidateCanvas(e.InvalidRect);
         }
@@ -448,10 +492,10 @@ namespace pyrochild.effects.liquify
 
         private void DoUndo()
         {
-            if (historystack.CanStepBack)
+            if (historystack.CanStepBack && !strokePending)
             {
                 Rectangle rect = historystack.StepBack(mesh);
-                UpdateHistoryButtons(false);
+                UpdateHistoryButtons();
                 mesh.Render(surface, source, rect, ColorBgra.Red);
                 canvas.InvalidateCanvas(rect);
             }
@@ -459,34 +503,19 @@ namespace pyrochild.effects.liquify
 
         private void DoRedo()
         {
-            if (historystack.CanStepForward)
+            if (historystack.CanStepForward && !strokePending)
             {
                 Rectangle rect = historystack.StepForward(mesh);
-                UpdateHistoryButtons(false);
+                UpdateHistoryButtons();
                 mesh.Render(surface, source, rect, ColorBgra.Red);
                 canvas.InvalidateCanvas(rect);
             }
         }
 
-        private void UpdateHistoryButtons(bool disable)
+        private void UpdateHistoryButtons()
         {
-            if (!this.IsDisposed)
-            {
-                if (this.InvokeRequired)
-                {
-                    Action<bool> uhbd = UpdateHistoryButtons;
-                    try
-                    {
-                        this.Invoke(uhbd, new object[] { disable });
-                    }
-                    catch { }
-                }
-                else
-                {
-                    redo.Enabled = historystack.CanStepForward && !disable;
-                    undo.Enabled = historystack.CanStepBack && !disable;
-                }
-            }
+            redo.Enabled = historystack.CanStepForward && !strokePending;
+            undo.Enabled = historystack.CanStepBack && !strokePending;
         }
 
         public int BrushSize
@@ -553,6 +582,7 @@ namespace pyrochild.effects.liquify
             // clicking the canvas doesn't take focus away from the size box, so check it here too
             ResetInvalidBrushSize();
 
+            SetStrokePending(true);
             renderer.AddEvent(
                 new LiquifyEventArgs(
                     QueuedToolEventType.MouseDown,
@@ -624,6 +654,11 @@ namespace pyrochild.effects.liquify
         const string dialogFilter = "Liquify Mesh (*.MSH)|*.msh";
         private void load_Click(object sender, EventArgs e)
         {
+            if (strokePending)
+            {
+                return;
+            }
+
             OpenFileDialog ofd = new OpenFileDialog();
 
             ofd.Filter = dialogFilter;
@@ -638,7 +673,7 @@ namespace pyrochild.effects.liquify
 
                     // a loaded mesh is an edit like any other, so it can be undone
                     historystack.AddHistoryItem(mesh, mesh.Bounds);
-                    UpdateHistoryButtons(false);
+                    UpdateHistoryButtons();
                 }
                 catch (Exception exception)
                 {
@@ -653,6 +688,11 @@ namespace pyrochild.effects.liquify
 
         private void save_Click(object sender, EventArgs e)
         {
+            if (strokePending)
+            {
+                return;
+            }
+
             SaveFileDialog sfd = new SaveFileDialog();
             sfd.Filter = dialogFilter;
             sfd.FileName = "Liquify.msh";
