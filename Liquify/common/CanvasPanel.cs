@@ -9,6 +9,16 @@ using System.Windows.Forms;
 namespace pyrochild.effects.common
 {
     /// <summary>
+    /// Draws over one row of the canvas after the image has been drawn into it.
+    /// </summary>
+    /// <param name="pixels">the row's pixels, 32-bit BGRA and already opaque, starting at canvasX</param>
+    /// <param name="canvasX">canvas x coordinate of the first pixel (zoomed pixels, not image pixels)</param>
+    /// <param name="canvasY">canvas y coordinate of the row</param>
+    /// <param name="count">number of pixels in the row</param>
+    /// <param name="scale">the zoom factor: canvas pixels per image pixel</param>
+    public delegate void CanvasRowOverlay(IntPtr pixels, int canvasX, int canvasY, int count, float scale);
+
+    /// <summary>
     /// A scrollable, zoomable view of a Surface with a brush cursor, which raises mouse events in the
     /// surface's coordinates.
     /// The image ("the canvas") is drawn straight onto this control, and scrolling is done here too:
@@ -39,6 +49,7 @@ namespace pyrochild.effects.common
         private Brush outlinebrush;
         private Brush outerCheckerBrush;
         private Brush canvasCheckerBrush;
+        private CanvasRowOverlay rowOverlay;
         private uint[] scaled; // scratch pixels for DrawComposited
         private int[] sourceColumns;
 
@@ -295,13 +306,17 @@ namespace pyrochild.effects.common
                 if (panelhasmouse && !panning && !spaceHeld)
                 {
                     int scaledbrushradius = (int)(brushRadius * scale);
+                    int left = (int)canvasmouselocation.X - scaledbrushradius - 1 + canvasBounds.X;
+                    int top = (int)canvasmouselocation.Y - scaledbrushradius - 1 + canvasBounds.Y;
+                    int diameter = 2 * scaledbrushradius + 2;
+
+                    // a black ring with a white one just inside it, so it shows on dark and light images alike
                     g.SmoothingMode = SmoothingMode.AntiAlias;
-                    g.DrawEllipse(
-                        Pens.Black,
-                        (int)canvasmouselocation.X - scaledbrushradius - 1 + canvasBounds.X,
-                        (int)canvasmouselocation.Y - scaledbrushradius - 1 + canvasBounds.Y,
-                        2 * scaledbrushradius + 2,
-                        2 * scaledbrushradius + 2);
+                    g.DrawEllipse(Pens.Black, left, top, diameter, diameter);
+                    if (diameter > 4)
+                    {
+                        g.DrawEllipse(Pens.White, left + 1, top + 1, diameter - 2, diameter - 2);
+                    }
                 }
 
                 using (PaintEventArgs bufferedArgs = new PaintEventArgs(g, clip))
@@ -405,6 +420,8 @@ namespace pyrochild.effects.common
             int clipTop = clip.Top;
             int clipWidth = clip.Width;
             int[] columns = sourceColumns;
+            CanvasRowOverlay overlay = rowOverlay;
+            float overlayScale = scale;
 
             // the source pixel under the center of each output pixel, in whole numbers so that it
             // comes out the same no matter where the clip starts
@@ -454,6 +471,11 @@ namespace pyrochild.effects.common
                             }
 
                             dstPixels[x] = pixel;
+                        }
+
+                        if (overlay != null)
+                        {
+                            overlay((IntPtr)dstPixels, clipLeft, clipTop + y, clipWidth, overlayScale);
                         }
                     };
 
@@ -644,6 +666,23 @@ namespace pyrochild.effects.common
             set
             {
                 canvasBackColor = value;
+                InvalidateCanvas();
+            }
+        }
+
+        /// <summary>
+        /// Optional. Called for every row of the canvas as it is painted, to draw over the image at
+        /// screen resolution. It is called from several threads at once.
+        /// </summary>
+        public CanvasRowOverlay RowOverlay
+        {
+            get
+            {
+                return rowOverlay;
+            }
+            set
+            {
+                rowOverlay = value;
                 InvalidateCanvas();
             }
         }

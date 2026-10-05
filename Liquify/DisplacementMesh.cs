@@ -146,24 +146,11 @@ namespace pyrochild.effects.liquify
             }
         }
 
-        public void Render(ISurface<ColorBgra> dst, ISurface<ColorBgra> src, Rectangle rect, ColorBgra maskcolor)
-        {
-            Render(dst, src, rect, maskcolor, 0, 0);
-        }
-
-        /// <summary>
-        /// Renders with the mask tinted and, if gridSpacing is above zero, a grid drawn over the image.
-        /// The grid is laid out on the source image, so it is distorted along with it.
-        /// </summary>
-        /// <param name="gridSpacing">distance between grid lines in source pixels, 0 for no grid</param>
-        /// <param name="gridLineWidth">width of the grid lines in source pixels</param>
-        public unsafe void Render(ISurface<ColorBgra> dst, ISurface<ColorBgra> src, Rectangle rect, ColorBgra maskcolor, int gridSpacing, float gridLineWidth)
+        public unsafe void Render(ISurface<ColorBgra> dst, ISurface<ColorBgra> src, Rectangle rect, ColorBgra maskcolor)
         {
             UserBlendOp blendop = new UserBlendOps.NormalBlendOp();
 
             if (rect.Width == 0) return;
-
-            float halfLine = gridLineWidth / 2;
 
             ForEachRow(rect, y =>
             {
@@ -173,34 +160,55 @@ namespace pyrochild.effects.liquify
                 for (int x = rect.Left; x < rect.Right; ++x)
                 {
                     ColorBgra mc = maskcolor.NewAlpha((byte)(maskcolor.A * offset->Mask / 510));
-                    float srcx = x + offset->X;
-                    float srcy = y + offset->Y;
 
-                    ColorBgra c = blendop.Apply(src.GetBilinearSample(srcx, srcy), mc);
-
-                    if (gridSpacing > 0)
-                    {
-                        float fx = srcx - MathF.Floor(srcx / gridSpacing) * gridSpacing;
-                        float fy = srcy - MathF.Floor(srcy / gridSpacing) * gridSpacing;
-                        float distance = Math.Min(Math.Min(fx, gridSpacing - fx), Math.Min(fy, gridSpacing - fy));
-
-                        if (distance <= halfLine)
-                        {
-                            // lighten dark pixels and darken light ones, so the line shows on anything
-                            int target = (c.R * 2 + c.G * 5 + c.B) / 8 < 128 ? 255 : 0;
-                            c = ColorBgra.FromBgra(
-                                (byte)((c.B + target) / 2),
-                                (byte)((c.G + target) / 2),
-                                (byte)((c.R + target) / 2),
-                                (byte)((c.A + 255) / 2));
-                        }
-                    }
-
-                    *dstPixel = c;
+                    *dstPixel = blendop.Apply(src.GetBilinearSample(x + offset->X, y + offset->Y), mc);
                     ++offset;
                     ++dstPixel;
                 }
             });
+        }
+
+        /// <summary>
+        /// Draws the mesh grid over one row of an image that is being displayed zoomed. The grid is laid
+        /// out on the source image, so it is distorted along with it, but it is evaluated per displayed
+        /// pixel, so the lines stay thin at any zoom.
+        /// </summary>
+        /// <param name="pixels">the row's pixels: 32-bit BGRA, opaque</param>
+        /// <param name="x">x of the first pixel, in displayed (zoomed) pixels</param>
+        /// <param name="y">y of the row, in displayed pixels</param>
+        /// <param name="count">number of pixels in the row</param>
+        /// <param name="scale">displayed pixels per mesh pixel</param>
+        /// <param name="spacing">distance between grid lines, in source pixels</param>
+        /// <param name="halfLine">half the width of a grid line, in source pixels</param>
+        public unsafe void DrawGridRow(IntPtr pixels, int x, int y, int count, float scale, float spacing, float halfLine)
+        {
+            uint* pixel = (uint*)pixels;
+            float invScale = 1 / scale;
+
+            // the mesh position under the middle of each displayed pixel
+            float meshy = (y + 0.5f) * invScale - 0.5f;
+
+            for (int i = 0; i < count; ++i, ++pixel)
+            {
+                float meshx = (x + i + 0.5f) * invScale - 0.5f;
+                DisplacementVector offset = GetBilinearSample(meshx, meshy);
+                float srcx = meshx + offset.X;
+                float srcy = meshy + offset.Y;
+
+                float fx = srcx - MathF.Floor(srcx / spacing) * spacing;
+                float fy = srcy - MathF.Floor(srcy / spacing) * spacing;
+                float distance = Math.Min(Math.Min(fx, spacing - fx), Math.Min(fy, spacing - fy));
+
+                if (distance <= halfLine)
+                {
+                    // lighten dark pixels and darken light ones, so the line shows on anything
+                    uint c = *pixel;
+                    uint b = c & 255, g = (c >> 8) & 255, r = (c >> 16) & 255;
+                    uint target = (r * 2 + g * 5 + b) / 8 < 128 ? 255u : 0u;
+
+                    *pixel = 0xFF000000 | (((r + target) / 2) << 16) | (((g + target) / 2) << 8) | ((b + target) / 2);
+                }
+            }
         }
 
         const int maxSupersample = 4;

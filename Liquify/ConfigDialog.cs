@@ -49,9 +49,8 @@ namespace pyrochild.effects.liquify
         // true from Load until the dialog has been shown; see the constructor
         private bool fitZoomPending;
 
-        // mesh grid overlay, in image pixels; a spacing of 0 means it is off
-        private int gridSpacing;
-        private float gridLineWidth;
+        // distance between the mesh grid's lines, in image pixels; 0 means the grid is off
+        private float gridSpacing;
 
         private float DpiScale
         {
@@ -276,34 +275,44 @@ namespace pyrochild.effects.liquify
             UpdateGrid();
         }
 
-        // Everything that draws the preview goes through here, so the mask tint and mesh grid stay consistent.
+        // Everything that draws the preview goes through here, so the mask tint stays consistent.
         private void RenderPreview(Rectangle rect)
         {
-            mesh.Render(surface, source, rect, ColorBgra.Red, gridSpacing, gridLineWidth);
+            mesh.Render(surface, source, rect, ColorBgra.Red);
         }
 
+        // The grid isn't part of the preview image: the canvas calls DrawGridRow as it paints, so the
+        // lines are drawn at screen resolution and stay one pixel wide at any zoom.
         private void UpdateGrid()
         {
             float screenSpacing = meshSmall.Checked ? 16 : meshLarge.Checked ? 64 : 0;
             screenSpacing *= DpiScale;
 
-            // The grid is drawn into the preview, which is at image resolution, so size it by the zoom
-            // to keep it looking the same on screen.
-            int spacing = screenSpacing == 0 ? 0 : Math.Max(4, (int)Math.Round(screenSpacing / canvas.ZoomFactor));
-            float lineWidth = Math.Max(1f, 1f / canvas.ZoomFactor);
+            // the same spacing on screen at any zoom
+            gridSpacing = screenSpacing / canvas.ZoomFactor;
 
-            if (spacing == gridSpacing && (spacing == 0 || lineWidth == gridLineWidth))
+            if (gridSpacing > 0 && canvas.RowOverlay == null)
             {
-                return;
+                canvas.RowOverlay = DrawGridRow;
             }
-
-            gridSpacing = spacing;
-            gridLineWidth = lineWidth;
-
-            if (mesh != null)
+            else if (gridSpacing == 0 && canvas.RowOverlay != null)
             {
-                RenderPreview(source.Bounds);
+                canvas.RowOverlay = null;
+            }
+            else
+            {
                 canvas.InvalidateCanvas();
+            }
+        }
+
+        // Called by the canvas from several threads while it paints.
+        private void DrawGridRow(IntPtr pixels, int canvasX, int canvasY, int count, float scale)
+        {
+            float spacing = gridSpacing;
+
+            if (spacing > 0 && mesh != null)
+            {
+                mesh.DrawGridRow(pixels, canvasX, canvasY, count, scale, spacing, 0.5f / scale);
             }
         }
 
