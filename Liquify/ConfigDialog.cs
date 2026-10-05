@@ -96,6 +96,7 @@ namespace pyrochild.effects.liquify
                 canvas.ZoomToFit();
                 fitZoomPending = false;
             };
+
             this.Text = Liquify.StaticDialogName;
 
             float dpiScale = DpiScale;
@@ -158,6 +159,10 @@ namespace pyrochild.effects.liquify
 
             InitializeUIImages();
             InitializeTooltips();
+
+            // Paint.NET has already given the form its theme colors by now (in the base constructor),
+            // so style the controls here too. Waiting for Load lets them show up light first.
+            ThemeHelper.Apply(this);
         }
 
         private void InitializeUIImages()
@@ -190,6 +195,7 @@ namespace pyrochild.effects.liquify
                 meshSmall.Image = ThemeHelper.Inverted(meshSmall.Image);
                 meshLarge.Image = ThemeHelper.Inverted(meshLarge.Image);
             }
+
             freeze.Image = LoadIcon(t, "images.freeze.png", dpiScale);
             thaw.Image = LoadIcon(t, "images.thaw.png", dpiScale);
             clearMask.Image = LoadIcon(t, "images.clearmask.png", dpiScale);
