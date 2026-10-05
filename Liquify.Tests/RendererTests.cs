@@ -99,6 +99,24 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void The_half_strength_ring_moves_out_as_density_rises_and_is_gone_at_full_density()
+        {
+            // strength at distance d is (1 - (d / radius)^2) ^ (2 - 2 * density)
+            foreach (float density in new[] { 0f, 0.25f, 0.5f, 0.9f })
+            {
+                float fraction = LiquifyRenderer.HalfStrengthRadius(density);
+                double strength = Math.Pow(1 - fraction * fraction, 2 - 2 * density);
+                Assert.InRange(strength, 0.499, 0.501);
+            }
+
+            Assert.True(LiquifyRenderer.HalfStrengthRadius(0f) < LiquifyRenderer.HalfStrengthRadius(0.5f));
+            Assert.True(LiquifyRenderer.HalfStrengthRadius(0.5f) < LiquifyRenderer.HalfStrengthRadius(0.9f));
+
+            // an even brush never drops to half
+            Assert.Equal(0f, LiquifyRenderer.HalfStrengthRadius(1f));
+        }
+
+        [Fact]
         public void A_push_stroke_changes_the_mesh_along_its_path_and_nowhere_else()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(300, 200))

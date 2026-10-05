@@ -91,6 +91,7 @@ namespace pyrochild.effects.common
         private Brush canvasCheckerBrush;
         private CanvasRowOverlay rowOverlay;
         private Surface backgroundSurface;
+        private float brushInnerFraction;
         private CanvasBackgroundOption activeBackgroundOption;
         private Size menuSwatchSize; // the menu's own image size, before it is widened for the check mark
         private readonly List<CanvasBackgroundOption> backgroundOptions = new List<CanvasBackgroundOption>();
@@ -490,7 +491,7 @@ namespace pyrochild.effects.common
                     g.Restore(state);
                 }
 
-                if (panelhasmouse && !panning && !spaceHeld && !panMode)
+                if (panelhasmouse && !panning && !spaceHeld)
                 {
                     int scaledbrushradius = (int)(brushRadius * scale);
                     int left = (int)canvasmouselocation.X - scaledbrushradius - 1 + canvasBounds.X;
@@ -503,6 +504,22 @@ namespace pyrochild.effects.common
                     if (diameter > 4)
                     {
                         g.DrawEllipse(Pens.White, left + 1, top + 1, diameter - 2, diameter - 2);
+                    }
+
+                    // the fainter inner ring; not worth drawing when it would sit on the outer one
+                    // or be too small to tell from a dot
+                    int innerRadius = (int)(scaledbrushradius * brushInnerFraction);
+                    if (innerRadius >= 6 && scaledbrushradius - innerRadius >= 4)
+                    {
+                        int centerX = (int)canvasmouselocation.X + canvasBounds.X;
+                        int centerY = (int)canvasmouselocation.Y + canvasBounds.Y;
+
+                        using (Pen darkPen = new Pen(Color.FromArgb(110, Color.Black)))
+                        using (Pen lightPen = new Pen(Color.FromArgb(150, Color.White)))
+                        {
+                            g.DrawEllipse(darkPen, centerX - innerRadius, centerY - innerRadius, 2 * innerRadius, 2 * innerRadius);
+                            g.DrawEllipse(lightPen, centerX - innerRadius + 1, centerY - innerRadius + 1, 2 * innerRadius - 2, 2 * innerRadius - 2);
+                        }
                     }
                 }
 
@@ -817,6 +834,26 @@ namespace pyrochild.effects.common
             }
         }
 
+        /// <summary>
+        /// Where to draw a second, fainter ring inside the brush circle, as a fraction of its radius.
+        /// It is for showing where a soft brush starts to fade. 0 means no inner ring.
+        /// </summary>
+        public float BrushInnerFraction
+        {
+            get
+            {
+                return brushInnerFraction;
+            }
+            set
+            {
+                if (brushInnerFraction != value)
+                {
+                    brushInnerFraction = value;
+                    InvalidateBrush();
+                }
+            }
+        }
+
         public PdnRegion Selection
         {
             get
@@ -1001,30 +1038,6 @@ namespace pyrochild.effects.common
 
         private const int VK_SPACE = 0x20;
 
-        private bool panMode;
-
-        /// <summary>
-        /// While set, dragging with the left button pans instead of raising canvas mouse events, with
-        /// no key held. Some laptops ignore their touchpad and its buttons while a key is down, which
-        /// makes space-drag impossible on them.
-        /// </summary>
-        public bool PanMode
-        {
-            get
-            {
-                return panMode;
-            }
-            set
-            {
-                if (panMode != value)
-                {
-                    InvalidateBrush();
-                    panMode = value;
-                    UpdatePanCursor();
-                }
-            }
-        }
-
         private bool panning;
         private MouseButtons panButton;
         private Point panStartMouse;
@@ -1040,8 +1053,7 @@ namespace pyrochild.effects.common
 
             // either view of the keyboard will do: the state as of the message being handled, or right now
             bool spaceDown = GetKeyState(VK_SPACE) < 0 || GetAsyncKeyState(VK_SPACE) < 0;
-            bool pan = button == MouseButtons.Middle || (button == MouseButtons.Left && (panMode || spaceDown));
-
+            bool pan = button == MouseButtons.Middle || (button == MouseButtons.Left && spaceDown);
 
             if (!pan)
             {
@@ -1164,7 +1176,7 @@ namespace pyrochild.effects.common
 
         private void UpdatePanCursor()
         {
-            this.Cursor = (panning || spaceHeld || panMode) ? Cursors.SizeAll : Cursors.Default;
+            this.Cursor = (panning || spaceHeld) ? Cursors.SizeAll : Cursors.Default;
         }
 
         private void ContinuePan()

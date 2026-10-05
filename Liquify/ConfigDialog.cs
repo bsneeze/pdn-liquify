@@ -43,6 +43,14 @@ namespace pyrochild.effects.liquify
         // The render thread owns the mesh for that time, so undo, redo, load and save have to wait.
         private bool strokePending;
 
+        // The controls that can't be used during a stroke only look disabled once it has gone on
+        // for a moment; greying them out and back for every short stroke reads as flicker.
+        private bool controlsLocked;
+        private System.Windows.Forms.Timer lockTimer;
+
+        // OK was pressed while the renderer was still finishing a stroke: close when it has
+        private bool okWhenStrokeEnds;
+
         // set once the dialog is closing; the render thread's callbacks check it and back off
         private volatile bool closing;
 
@@ -83,6 +91,15 @@ namespace pyrochild.effects.liquify
             this.Load += (themeSender, themeArgs) => ThemeHelper.Apply(this);
             this.Shown += (themeSender, themeArgs) => ThemeHelper.Apply(this);
 
+            // the status line fills the space between the link and the buttons, wherever the font
+            // and the DPI have put them
+            this.Load += (statusSender, statusArgs) =>
+            {
+                int gap = (int)Math.Round(10 * DpiScale);
+                status.SetBounds(donate.Right + gap, 0, Math.Max(0, ok.Left - donate.Right - 2 * gap), 0,
+                    BoundsSpecified.X | BoundsSpecified.Width);
+            };
+
             // The window gets its final size (and may be maximized) after Load, so keep fitting the
             // image as the canvas resizes until the dialog has been shown. That way the first thing
             // drawn is already at the right zoom.
@@ -106,6 +123,23 @@ namespace pyrochild.effects.liquify
             pressure = new SliderControl();
             pressure.Minimum = .01f;
             density = new SliderControl();
+            density.ValueChanged += (densitySender, densityArgs) => UpdateBrushInnerRing();
+
+            lockTimer = new System.Windows.Forms.Timer(components);
+            lockTimer.Interval = 250;
+            lockTimer.Tick += (timerSender, timerArgs) =>
+            {
+                lockTimer.Stop();
+                if (strokePending)
+                {
+                    ShowControlsLocked(true);
+                }
+            };
+
+            // held down like the O key; leaving the button ends it too, in case the release goes elsewhere
+            original.MouseDown += (originalSender, originalArgs) => SetComparing(true);
+            original.MouseUp += (originalSender, originalArgs) => SetComparing(false);
+            original.MouseLeave += (originalSender, originalArgs) => SetComparing(false);
 
             if (dpiScale > 1.01f)
             {
@@ -158,12 +192,13 @@ namespace pyrochild.effects.liquify
                 if (radioButton != null)
                 {
                     radioButton.CheckedChanged += new EventHandler(toolRadioButton_CheckedChanged);
-                    radioButton.Click += new EventHandler(toolRadioButton_Click);
                 }
             }
 
             InitializeUIImages();
             InitializeTooltips();
+            UpdateStatus();
+            UpdateBrushInnerRing();
 
             // Paint.NET has already given the form its theme colors by now (in the base constructor),
             // so style the controls here too. Waiting for Load lets them show up light first.
@@ -191,17 +226,7 @@ namespace pyrochild.effects.liquify
             redo.Image = new Bitmap(t, "images.redo.png");
             zoomIn.Image = new Bitmap(t, "images.zoomin.png");
             zoomOut.Image = new Bitmap(t, "images.zoomout.png");
-            panTool.Image = new Bitmap(t, "images.pan.png");
-            showMask.Image = new Bitmap(t, "images.showmask.png");
-            meshSmall.Image = new Bitmap(t, "images.gridsmall.png");
-            meshLarge.Image = new Bitmap(t, "images.gridlarge.png");
 
-            if (PdnBaseForm.IsAppThemeDark)
-            {
-                // these two are plain black line drawings, which disappear on a dark toolbar
-                meshSmall.Image = ThemeHelper.Inverted(meshSmall.Image);
-                meshLarge.Image = ThemeHelper.Inverted(meshLarge.Image);
-            }
 
             freeze.Image = LoadIcon(t, "images.freeze.png", dpiScale);
             thaw.Image = LoadIcon(t, "images.thaw.png", dpiScale);
@@ -244,23 +269,28 @@ namespace pyrochild.effects.liquify
             tooltip.SetToolTip(pucker, "Pucker (S)");
             tooltip.SetToolTip(twistleft, "Twist left (L)");
             tooltip.SetToolTip(twistright, "Twist right (R)");
-            tooltip.SetToolTip(save, "Save mesh");
-            tooltip.SetToolTip(load, "Load mesh");
+            tooltip.SetToolTip(save, "Save mesh (.msh, the format Photoshop's Liquify uses)");
+            tooltip.SetToolTip(load, "Load mesh (.msh, including ones saved by Photoshop's Liquify)");
             tooltip.SetToolTip(freeze, "Freeze (F)");
             tooltip.SetToolTip(thaw, "Thaw (T)");
             tooltip.SetToolTip(clearMask, "Thaw everything");
             tooltip.SetToolTip(invertMask, "Invert frozen area");
-            showMask.ToolTipText = "Show frozen areas (M). Hold O to see the original image.";
-            meshSmall.ToolTipText = "Show mesh (fine)";
-            meshLarge.ToolTipText = "Show mesh (coarse)";
-            undo.ToolTipText= "Undo";
-            redo.ToolTipText= "Redo";
-            brushSizeIncrement.ToolTipText = "Increase brush size";
-            brushSizeDecrement.ToolTipText = "Decrease brush size";
+            viewMenu.AutoToolTip = false;
+            original.ToolTipText = "Hold to see the original image (O)";
+            undo.ToolTipText = "Undo (Ctrl+Z)";
+            redo.ToolTipText = "Redo (Ctrl+Y)";
+            brushSizeIncrement.ToolTipText = "Increase brush size (], or Ctrl+] for 5)";
+            brushSizeDecrement.ToolTipText = "Decrease brush size ([, or Ctrl+[ for 5)";
+
+            const string pressureTip = "How strongly the brush acts";
+            const string densityTip = "How much of the brush acts at full strength. Low fades out from the center; high is even to the edge. The inner ring on the brush shows where it is down to half.";
+            pressureLabel.ToolTipText = pressureTip;
+            densityLabel.ToolTipText = densityTip;
+            tooltip.SetToolTip(pressure, pressureTip);
+            tooltip.SetToolTip(density, densityTip);
             zoomIn.ToolTipText = "Zoom in (Ctrl +)";
             zoomOut.ToolTipText = "Zoom out (Ctrl -)";
             zoom.ToolTipText = "Zoom (Ctrl+0 for 100%, Ctrl+B to fit)";
-            panTool.ToolTipText = "Pan: drag to move the view (H). Space-drag and middle-drag also pan.";
         }
 
         private void InitializeRenderer()
@@ -355,6 +385,7 @@ namespace pyrochild.effects.liquify
 
             comparing = compare;
             canvas.Surface = compare ? source : surface;
+            UpdateStatus();
         }
 
         protected override void OnKeyUp(KeyEventArgs e)
@@ -454,18 +485,14 @@ namespace pyrochild.effects.liquify
             {
                 switch (keyData)
                 {
-                    case Keys.P: SelectTool(push); return true;
-                    case Keys.L: SelectTool(twistleft); return true;
-                    case Keys.R: SelectTool(twistright); return true;
-                    case Keys.B: SelectTool(bloat); return true;
-                    case Keys.S: SelectTool(pucker); return true;
-                    case Keys.E: SelectTool(reconstruct); return true;
-                    case Keys.F: SelectTool(freeze); return true;
-                    case Keys.T: SelectTool(thaw); return true;
-
-                    case Keys.H:
-                        SetPanMode(!canvas.PanMode);
-                        return true;
+                    case Keys.P: push.Checked = true; return true;
+                    case Keys.L: twistleft.Checked = true; return true;
+                    case Keys.R: twistright.Checked = true; return true;
+                    case Keys.B: bloat.Checked = true; return true;
+                    case Keys.S: pucker.Checked = true; return true;
+                    case Keys.E: reconstruct.Checked = true; return true;
+                    case Keys.F: freeze.Checked = true; return true;
+                    case Keys.T: thaw.Checked = true; return true;
 
                     case Keys.M:
                         showMask.Checked = !showMask.Checked;
@@ -526,16 +553,66 @@ namespace pyrochild.effects.liquify
             }
         }
 
+        // The controls stop working straight away (their handlers check strokePending), but only
+        // look disabled if the stroke lasts.
         private void SetStrokePending(bool pending)
         {
             strokePending = pending;
+
+            if (pending)
+            {
+                lockTimer.Start();
+                return;
+            }
+
+            lockTimer.Stop();
+            ShowControlsLocked(false);
+
+            if (okWhenStrokeEnds)
+            {
+                okWhenStrokeEnds = false;
+                ok.PerformClick();
+            }
+        }
+
+        private void ShowControlsLocked(bool locked)
+        {
+            controlsLocked = locked;
             UpdateHistoryButtons();
-            ok.Enabled = !pending;
-            load.Enabled = !pending;
-            save.Enabled = !pending;
-            resetAll.Enabled = !pending;
-            clearMask.Enabled = !pending;
-            invertMask.Enabled = !pending;
+            ok.Enabled = !locked;
+            load.Enabled = !locked;
+            save.Enabled = !locked;
+            resetAll.Enabled = !locked;
+            clearMask.Enabled = !locked;
+            invertMask.Enabled = !locked;
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            // A modal dialog closed by one of its buttons (or Esc, which presses Cancel) reports no
+            // reason at all; only the close box reports UserClosing.
+            if (e.CloseReason == CloseReason.None || e.CloseReason == CloseReason.UserClosing)
+            {
+                if (this.DialogResult == DialogResult.OK)
+                {
+                    if (strokePending)
+                    {
+                        // the mesh is still being written to: finish the stroke, then close
+                        okWhenStrokeEnds = true;
+                        e.Cancel = true;
+                    }
+                }
+                else if (historystack != null && historystack.CanStepBack)
+                {
+                    // Esc and the close box end up here too, and would otherwise throw the work away
+                    if (!ConfirmDialog.Show(this, this.Text, "Discard the changes you have made?", "Discard", "Keep editing"))
+                    {
+                        e.Cancel = true;
+                    }
+                }
+            }
+
+            base.OnFormClosing(e);
         }
 
         // Stops the render thread and waits for it, so nothing is still drawing when the surfaces go away.
@@ -581,32 +658,6 @@ namespace pyrochild.effects.liquify
             return result;
         }
 
-        // A hand tool: left-drag pans, with no key held (see CanvasPanel.PanMode). It can be switched
-        // on with the mouse alone, from the toolbar, because some laptops drop clicks that come while
-        // or just after a key is pressed.
-        private void SetPanMode(bool pan)
-        {
-            canvas.PanMode = pan;
-            panTool.Checked = pan;
-        }
-
-        private void panTool_Click(object sender, EventArgs e)
-        {
-            SetPanMode(panTool.Checked);
-        }
-
-        // Picking a tool, by key or by clicking it, also leaves pan mode.
-        private void SelectTool(RadioButton tool)
-        {
-            SetPanMode(false);
-            tool.Checked = true;
-        }
-
-        private void toolRadioButton_Click(object sender, EventArgs e)
-        {
-            SetPanMode(false);
-        }
-
         private void toolRadioButton_CheckedChanged(object sender, EventArgs e)
         {
             RadioButton button = sender as RadioButton;
@@ -614,6 +665,41 @@ namespace pyrochild.effects.liquify
             {
                 if (rendermodes.ContainsKey(button))
                     mode = rendermodes[button];
+
+                UpdateStatus();
+            }
+        }
+
+        // The line at the bottom of the dialog: what the current tool does and its key, then the
+        // things that have no control of their own to hover over. Whatever doesn't fit is cut off
+        // with an ellipsis, so the tool comes first.
+        private void UpdateStatus()
+        {
+            const string hints = "Space-drag: pan";
+
+            if (comparing)
+            {
+                status.Text = "Showing the original image.";
+            }
+            else
+            {
+                status.Text = GetToolHint(mode) + "      " + hints;
+            }
+        }
+
+        private static string GetToolHint(LiquifyMode mode)
+        {
+            switch (mode)
+            {
+                case LiquifyMode.Push: return "Push (P): drag to push the image along.";
+                case LiquifyMode.TwistLeft: return "Twist left (L): hold or drag to twist the image.";
+                case LiquifyMode.TwistRight: return "Twist right (R): hold or drag to twist the image.";
+                case LiquifyMode.Bloat: return "Bloat (B): hold or drag to swell the image.";
+                case LiquifyMode.Pucker: return "Pucker (S): hold or drag to pinch the image.";
+                case LiquifyMode.Reconstruct: return "Reconstruct (E): hold or drag to undo the distortion.";
+                case LiquifyMode.Freeze: return "Freeze (F): paint over areas to protect them.";
+                case LiquifyMode.Thaw: return "Thaw (T): paint over frozen areas to unprotect them.";
+                default: return string.Empty;
             }
         }
 
@@ -660,6 +746,11 @@ namespace pyrochild.effects.liquify
         private void OnPenChanged()
         {
             canvas.BrushSize = BrushSize;
+        }
+
+        private void UpdateBrushInnerRing()
+        {
+            canvas.BrushInnerFraction = LiquifyRenderer.HalfStrengthRadius(density.Value);
         }
 
         private void donate_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
@@ -923,7 +1014,6 @@ namespace pyrochild.effects.liquify
         // here when it was sent to a control other than the canvas, which handles its own.
         protected override void WndProc(ref Message m)
         {
-
             if (m.Msg == WM_MOUSEHWHEEL)
             {
                 canvas.PerformHorizontalMouseWheel(CanvasPanel.WheelDelta(m));
@@ -996,8 +1086,8 @@ namespace pyrochild.effects.liquify
 
         private void UpdateHistoryButtons()
         {
-            redo.Enabled = historystack.CanStepForward && !strokePending;
-            undo.Enabled = historystack.CanStepBack && !strokePending;
+            redo.Enabled = historystack.CanStepForward && !controlsLocked;
+            undo.Enabled = historystack.CanStepBack && !controlsLocked;
         }
 
         public int BrushSize
@@ -1140,7 +1230,7 @@ namespace pyrochild.effects.liquify
             UpdateTokenFromDialog();
         }
 
-        const string dialogFilter = "Liquify Mesh (*.MSH)|*.msh";
+        const string dialogFilter = "Liquify mesh, Photoshop compatible (*.msh)|*.msh";
         private void load_Click(object sender, EventArgs e)
         {
             if (strokePending)
@@ -1212,10 +1302,6 @@ namespace pyrochild.effects.liquify
             DoRedo();
         }
 
-        private void cancel_Click(object sender, EventArgs e)
-        {
-            renderer.Abort();
-        }
 
         private void zoomOut_Click(object sender, EventArgs e)
         {

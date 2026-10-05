@@ -326,37 +326,6 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
-        public void In_pan_mode_a_left_drag_is_not_passed_on_as_drawing()
-        {
-            WithCanvas(1000, 800, canvas =>
-            {
-                int downs = 0, moves = 0, ups = 0;
-                canvas.CanvasMouseDown += (s, e) => ++downs;
-                canvas.CanvasMouseMove += (s, e) => ++moves;
-                canvas.CanvasMouseUp += (s, e) => ++ups;
-
-                canvas.ZoomFactor = 2f;
-                canvas.PanMode = true;
-                SendMessage(canvas.Handle, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, Position(200, 200));
-                SendMessage(canvas.Handle, WM_MOUSEMOVE, (IntPtr)MK_LBUTTON, Position(180, 190));
-                SendMessage(canvas.Handle, WM_LBUTTONUP, IntPtr.Zero, Position(180, 190));
-                Pump(200);
-
-                Assert.Equal(0, downs);
-                Assert.Equal(0, moves);
-                Assert.Equal(0, ups);
-
-                canvas.PanMode = false;
-                SendMessage(canvas.Handle, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, Position(200, 200));
-                SendMessage(canvas.Handle, WM_LBUTTONUP, IntPtr.Zero, Position(200, 200));
-                Pump(200);
-
-                Assert.Equal(1, downs);
-                Assert.Equal(1, ups);
-            });
-        }
-
-        [Fact]
         public void Wheel_and_scrollbar_messages_scroll_on_the_right_axis()
         {
             WithCanvas(1000, 800, canvas =>

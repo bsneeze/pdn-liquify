@@ -88,8 +88,6 @@
     <EmbeddedResource Include="images\icon.png" />
     <EmbeddedResource Include="images\bloat.png" />
     <EmbeddedResource Include="images\freeze.png" />
-    <EmbeddedResource Include="images\gridlarge.png" />
-    <EmbeddedResource Include="images\gridsmall.png" />
     <EmbeddedResource Include="images\pucker.png" />
     <EmbeddedResource Include="images\push.png" />
     <EmbeddedResource Include="images\redo.png" />
@@ -108,8 +106,6 @@
     <EmbeddedResource Include="images\clearmask.png" />
     <EmbeddedResource Include="images\invertmask.png" />
     <EmbeddedResource Include="images\resetall.png" />
-    <EmbeddedResource Include="images\pan.png" />
-    <EmbeddedResource Include="images\showmask.png" />
   </ItemGroup>
 
 

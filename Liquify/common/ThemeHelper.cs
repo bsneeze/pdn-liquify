@@ -165,7 +165,7 @@ namespace pyrochild.effects.common
             }
             else if (c is ToolStrip strip)
             {
-                strip.Renderer = new ToolStripProfessionalRenderer(new DarkColorTable(back, field, hover, border)) { RoundedEdges = false };
+                strip.Renderer = new DarkRenderer(new DarkColorTable(back, field, hover, border), fore) { RoundedEdges = false };
                 strip.BackColor = back;
                 strip.ForeColor = fore;
                 foreach (ToolStripItem item in strip.Items)
@@ -241,6 +241,79 @@ namespace pyrochild.effects.common
                 // Hosted controls aren't in strip.Controls.
                 Style(host.Control);
             }
+            else if (item is ToolStripDropDownItem dropDownItem && dropDownItem.HasDropDownItems)
+            {
+                // A drop-down is a strip of its own, with its own items.
+                if (item.Owner != null)
+                {
+                    dropDownItem.DropDown.Renderer = item.Owner.Renderer;
+                }
+                dropDownItem.DropDown.BackColor = field;
+                dropDownItem.DropDown.ForeColor = fore;
+
+                foreach (ToolStripItem child in dropDownItem.DropDownItems)
+                {
+                    StyleItem(child);
+                }
+            }
+        }
+
+        // The stock check mark is a black glyph, which doesn't show on a dark menu.
+        private sealed class DarkRenderer : ToolStripProfessionalRenderer
+        {
+            private readonly Color fore;
+
+            public DarkRenderer(ProfessionalColorTable colors, Color fore)
+                : base(colors)
+            {
+                this.fore = fore;
+            }
+
+            // The stock highlight for an entry on a drop-down doesn't come from the color table on
+            // every Windows theme, and a light one makes the light text unreadable.
+            protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+            {
+                if (!e.Item.IsOnDropDown)
+                {
+                    base.OnRenderMenuItemBackground(e);
+                    return;
+                }
+
+                if (e.Item.Selected && e.Item.Enabled)
+                {
+                    Rectangle bounds = new Rectangle(2, 0, e.Item.Width - 4, e.Item.Height);
+                    using (SolidBrush brush = new SolidBrush(ColorTable.MenuItemSelected))
+                    {
+                        e.Graphics.FillRectangle(brush, bounds);
+                    }
+                }
+            }
+
+            protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+            {
+                Rectangle r = e.ImageRectangle;
+                float size = Math.Min(r.Width, r.Height);
+                float left = r.Left + (r.Width - size) / 2f;
+                float top = r.Top + (r.Height - size) / 2f;
+
+                System.Drawing.Drawing2D.SmoothingMode previous = e.Graphics.SmoothingMode;
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+                using (Pen pen = new Pen(e.Item.Enabled ? fore : Color.Gray, Math.Max(1.6f, size / 9f)))
+                {
+                    pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                    pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                    pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                    e.Graphics.DrawLines(pen, new PointF[]
+                    {
+                        new PointF(left + size * 0.20f, top + size * 0.52f),
+                        new PointF(left + size * 0.42f, top + size * 0.74f),
+                        new PointF(left + size * 0.82f, top + size * 0.26f)
+                    });
+                }
+
+                e.Graphics.SmoothingMode = previous;
+            }
         }
 
         private static void StyleCombo(ComboBox combo)
@@ -314,6 +387,11 @@ namespace pyrochild.effects.common
             public override Color MenuBorder { get { return border; } }
             public override Color MenuItemBorder { get { return border; } }
             public override Color MenuItemSelected { get { return hover; } }
+            public override Color MenuItemSelectedGradientBegin { get { return hover; } }
+            public override Color MenuItemSelectedGradientEnd { get { return hover; } }
+            public override Color MenuItemPressedGradientBegin { get { return field; } }
+            public override Color MenuItemPressedGradientMiddle { get { return field; } }
+            public override Color MenuItemPressedGradientEnd { get { return field; } }
             public override Color ImageMarginGradientBegin { get { return field; } }
             public override Color ImageMarginGradientMiddle { get { return field; } }
             public override Color ImageMarginGradientEnd { get { return field; } }

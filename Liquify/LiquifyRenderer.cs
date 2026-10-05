@@ -24,6 +24,28 @@ namespace pyrochild.effects.liquify
             this.mesh = mesh;
         }
 
+        // The brush's strength at distance d from its center is (1 - (d / radius)^2) ^ exponent:
+        // full strength everywhere at density 1, fading from the center at density 0.
+        private static float FalloffExponent(float density)
+        {
+            return 2 - 2 * density;
+        }
+
+        /// <summary>
+        /// How far from the center the brush is down to half strength, as a fraction of its radius.
+        /// 0 when it never is, which is the case at full density.
+        /// </summary>
+        public static float HalfStrengthRadius(float density)
+        {
+            float exponent = FalloffExponent(density);
+            if (exponent <= 0)
+            {
+                return 0;
+            }
+
+            return (float)Math.Sqrt(1 - Math.Pow(0.5, 1 / exponent));
+        }
+
         protected override void OnMouseHold(QueuedToolEventArgs args)
         {
             if (mode != LiquifyMode.Push)
@@ -54,7 +76,7 @@ namespace pyrochild.effects.liquify
                 mode = e.Mode;
                 density = new float[radius];
 
-                float densityexp = 2 - 2 * e.Density;
+                float densityexp = FalloffExponent(e.Density);
                 for (int i = 0; i < density.Length; ++i)
                 {
                     density[i] = (float)Math.Pow(1 - (float)i / radius, densityexp);

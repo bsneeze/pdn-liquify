@@ -59,10 +59,11 @@ namespace pyrochild.effects.liquify
             this.load = new System.Windows.Forms.Button();
             this.save = new System.Windows.Forms.Button();
             this.toolStripSeparator3 = new System.Windows.Forms.ToolStripSeparator();
-            this.showMask = new System.Windows.Forms.ToolStripButton();
-            this.panTool = new System.Windows.Forms.ToolStripButton();
-            this.meshSmall = new System.Windows.Forms.ToolStripButton();
-            this.meshLarge = new System.Windows.Forms.ToolStripButton();
+            this.viewMenu = new System.Windows.Forms.ToolStripDropDownButton();
+            this.showMask = new System.Windows.Forms.ToolStripMenuItem();
+            this.meshSmall = new System.Windows.Forms.ToolStripMenuItem();
+            this.meshLarge = new System.Windows.Forms.ToolStripMenuItem();
+            this.original = new System.Windows.Forms.ToolStripButton();
             this.settingStrip = new DoubleBufferedToolStrip();
             this.brushSizeSeparator = new System.Windows.Forms.ToolStripSeparator();
             this.brushSizeLabel = new System.Windows.Forms.ToolStripLabel();
@@ -83,6 +84,7 @@ namespace pyrochild.effects.liquify
             this.ok = new System.Windows.Forms.Button();
             this.cancel = new System.Windows.Forms.Button();
             this.donate = new System.Windows.Forms.LinkLabel();
+            this.status = new System.Windows.Forms.Label();
             this.tooltip = new System.Windows.Forms.ToolTip(this.components);
             this.canvas = new pyrochild.effects.common.CanvasPanel();
             this.toolPanel.SuspendLayout();
@@ -273,11 +275,9 @@ namespace pyrochild.effects.liquify
             this.zoomOut,
             this.zoom,
             this.zoomIn,
-            this.panTool,
             this.toolStripSeparator3,
-            this.showMask,
-            this.meshSmall,
-            this.meshLarge});
+            this.viewMenu,
+            this.original});
             this.settingStrip.Location = new System.Drawing.Point(0, 0);
             this.settingStrip.Name = "settingStrip";
             this.settingStrip.Size = new System.Drawing.Size(624, 25);
@@ -394,49 +394,57 @@ namespace pyrochild.effects.liquify
             this.toolStripSeparator3.Name = "toolStripSeparator3";
             this.toolStripSeparator3.Size = new System.Drawing.Size(6, 25);
             // 
-            // panTool
+            // viewMenu
             // 
-            this.panTool.CheckOnClick = true;
-            this.panTool.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
-            this.panTool.ImageTransparentColor = System.Drawing.Color.Magenta;
-            this.panTool.Name = "panTool";
-            this.panTool.Size = new System.Drawing.Size(23, 22);
-            this.panTool.Click += new System.EventHandler(this.panTool_Click);
+            this.viewMenu.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.viewMenu.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.showMask,
+            this.meshSmall,
+            this.meshLarge});
+            this.viewMenu.Name = "viewMenu";
+            this.viewMenu.Size = new System.Drawing.Size(45, 22);
+            this.viewMenu.Text = "View";
             // 
             // showMask
             // 
             this.showMask.Checked = true;
             this.showMask.CheckOnClick = true;
             this.showMask.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.showMask.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
-            this.showMask.ImageTransparentColor = System.Drawing.Color.Magenta;
             this.showMask.Name = "showMask";
-            this.showMask.Size = new System.Drawing.Size(23, 22);
+            this.showMask.ShortcutKeyDisplayString = "M";
+            this.showMask.Size = new System.Drawing.Size(180, 22);
+            this.showMask.Text = "Frozen areas";
             this.showMask.Click += new System.EventHandler(this.showMask_Click);
             // 
             // meshSmall
             // 
             this.meshSmall.CheckOnClick = true;
-            this.meshSmall.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
-            this.meshSmall.ImageTransparentColor = System.Drawing.Color.Magenta;
             this.meshSmall.Name = "meshSmall";
-            this.meshSmall.Size = new System.Drawing.Size(23, 22);
+            this.meshSmall.Size = new System.Drawing.Size(180, 22);
+            this.meshSmall.Text = "Mesh grid, fine";
             this.meshSmall.Click += new System.EventHandler(this.mesh_Click);
             // 
             // meshLarge
             // 
             this.meshLarge.CheckOnClick = true;
-            this.meshLarge.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
-            this.meshLarge.ImageTransparentColor = System.Drawing.Color.Magenta;
             this.meshLarge.Name = "meshLarge";
-            this.meshLarge.Size = new System.Drawing.Size(23, 22);
+            this.meshLarge.Size = new System.Drawing.Size(180, 22);
+            this.meshLarge.Text = "Mesh grid, coarse";
             this.meshLarge.Click += new System.EventHandler(this.mesh_Click);
+            // 
+            // original
+            // 
+            this.original.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.original.Name = "original";
+            this.original.Size = new System.Drawing.Size(55, 22);
+            this.original.Text = "Original";
             // 
             // panel1
             // 
             this.panel1.Controls.Add(this.ok);
             this.panel1.Controls.Add(this.cancel);
             this.panel1.Controls.Add(this.donate);
+            this.panel1.Controls.Add(this.status);
             this.panel1.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.panel1.Location = new System.Drawing.Point(30, 412);
             this.panel1.Name = "panel1";
@@ -465,7 +473,6 @@ namespace pyrochild.effects.liquify
             this.cancel.TabIndex = 1;
             this.cancel.Text = "Cancel";
             this.cancel.UseVisualStyleBackColor = true;
-            this.cancel.Click += new System.EventHandler(this.cancel_Click);
             // 
             // donate
             // 
@@ -477,6 +484,16 @@ namespace pyrochild.effects.liquify
             this.donate.TabStop = true;
             this.donate.Text = "Donate!";
             this.donate.LinkClicked += new System.Windows.Forms.LinkLabelLinkClickedEventHandler(this.donate_LinkClicked);
+            // 
+            // status
+            // 
+            this.status.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Right)));
+            this.status.AutoEllipsis = true;
+            this.status.Location = new System.Drawing.Point(60, 4);
+            this.status.Name = "status";
+            this.status.Size = new System.Drawing.Size(369, 23);
+            this.status.TabIndex = 3;
+            this.status.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
             // canvas
             // 
@@ -545,6 +562,7 @@ namespace pyrochild.effects.liquify
         private Button ok;
         private Button cancel;
         private LinkLabel donate;
+        private Label status;
         private ToolStripSeparator brushSizeSeparator;
         private ToolStripLabel brushSizeLabel;
         private ToolStripButton brushSizeDecrement;
@@ -572,9 +590,10 @@ namespace pyrochild.effects.liquify
         private Button invertMask;
         private ToolStripSeparator toolStripSeparator3;
         private Button resetAll;
-        private ToolStripButton showMask;
-        private ToolStripButton panTool;
-        private ToolStripButton meshSmall;
-        private ToolStripButton meshLarge;
+        private ToolStripDropDownButton viewMenu;
+        private ToolStripMenuItem showMask;
+        private ToolStripButton original;
+        private ToolStripMenuItem meshSmall;
+        private ToolStripMenuItem meshLarge;
     }
 }
