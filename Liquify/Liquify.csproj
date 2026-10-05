@@ -6,6 +6,9 @@
     <RootNamespace>pyrochild.effects.liquify</RootNamespace>
     <AssemblyName>Liquify</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Where Paint.NET is installed. Override with -p:PdnDir=...\ (keep the trailing backslash). -->
+    <PdnDir Condition="'$(PdnDir)' == ''">C:\Program Files\Paint.NET\</PdnDir>
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
     <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
 
@@ -23,39 +26,39 @@
 
   <ItemGroup>
     <Reference Include="PaintDotNet.Base">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Base.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Base.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Core">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Core.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Core.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Data">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Data.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Data.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Effects">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Effects.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Effects.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Effects.Core">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Effects.Core.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Effects.Core.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Primitives">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Primitives.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Primitives.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.ComponentModel">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.ComponentModel.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.ComponentModel.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.ObjectModel">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.ObjectModel.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.ObjectModel.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Windows">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Windows.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Windows.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
@@ -95,7 +98,6 @@
     <EmbeddedResource Include="images\reconstruct.png" />
     <EmbeddedResource Include="images\colorwheel.png" />
   </ItemGroup>
-
 
 
   <PropertyGroup>

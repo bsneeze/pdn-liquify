@@ -329,7 +329,7 @@ namespace pyrochild.effects.liquify
 
         private void donate_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            ((PaintDotNet.AppModel.IShellService)Services.GetService(typeof(PaintDotNet.AppModel.IShellService))).LaunchUrl(this, "http://forums.getpaint.net/index.php?showtopic=7291");
+            ((PaintDotNet.AppModel.IShellService)Services.GetService(typeof(PaintDotNet.AppModel.IShellService))).LaunchUrl(this, "https://forums.getpaint.net/index.php?showtopic=7291");
         }
 
         private void ConfigDialog_Load(object sender, EventArgs e)
