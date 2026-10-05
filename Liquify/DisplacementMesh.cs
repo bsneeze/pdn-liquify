@@ -203,6 +203,82 @@ namespace pyrochild.effects.liquify
             });
         }
 
+        const int maxSupersample = 4;
+
+        /// <summary>
+        /// Like Render, but where the mesh squeezes the source together it averages several samples per
+        /// pixel instead of taking one, which would skip source pixels and look jagged. Everywhere else
+        /// the result is the same as Render.
+        /// </summary>
+        public unsafe void RenderSupersampled(ISurface<ColorBgra> dst, ISurface<ColorBgra> src, Rectangle rect)
+        {
+            if (rect.Width == 0) return;
+
+            ForEachRow(rect, y =>
+            {
+                DisplacementVector* offset = this.GetPointAddressUnchecked(rect.Left, y);
+                ColorBgra* dstPixel = (ColorBgra*)dst.GetPointPointer(rect.Left, y);
+                int down = y < height - 1 ? width : 0;
+
+                for (int x = rect.Left; x < rect.Right; ++x)
+                {
+                    DisplacementVector* right = offset + (x < width - 1 ? 1 : 0);
+                    DisplacementVector* below = offset + down;
+
+                    // how far apart in the source the neighboring output pixels land
+                    float ax = 1 + right->X - offset->X;
+                    float ay = right->Y - offset->Y;
+                    float bx = below->X - offset->X;
+                    float by = 1 + below->Y - offset->Y;
+                    float stretch = MathF.Sqrt(Math.Max(ax * ax + ay * ay, bx * bx + by * by));
+
+                    if (stretch <= 1.05f)
+                    {
+                        *dstPixel = src.GetBilinearSample(x + offset->X, y + offset->Y);
+                    }
+                    else
+                    {
+                        int n = Math.Min(maxSupersample, Math.Max(2, (int)MathF.Ceiling(stretch)));
+                        int a = 0, r = 0, g = 0, b = 0;
+
+                        for (int j = 0; j < n; ++j)
+                        {
+                            float suby = y + (j + 0.5f) / n - 0.5f;
+
+                            for (int i = 0; i < n; ++i)
+                            {
+                                float subx = x + (i + 0.5f) / n - 0.5f;
+                                DisplacementVector v = GetBilinearSample(subx, suby);
+                                ColorBgra s = src.GetBilinearSample(subx + v.X, suby + v.Y);
+
+                                // weight by alpha so transparent samples don't darken the result
+                                a += s.A;
+                                r += s.R * s.A;
+                                g += s.G * s.A;
+                                b += s.B * s.A;
+                            }
+                        }
+
+                        if (a == 0)
+                        {
+                            *dstPixel = ColorBgra.FromBgra(0, 0, 0, 0);
+                        }
+                        else
+                        {
+                            *dstPixel = ColorBgra.FromBgra(
+                                (byte)((b + a / 2) / a),
+                                (byte)((g + a / 2) / a),
+                                (byte)((r + a / 2) / a),
+                                (byte)((a + n * n / 2) / (n * n)));
+                        }
+                    }
+
+                    ++offset;
+                    ++dstPixel;
+                }
+            });
+        }
+
         public unsafe void ClearMask()
         {
             ForEachRow(Bounds, y =>

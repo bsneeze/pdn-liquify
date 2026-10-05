@@ -95,7 +95,7 @@ namespace pyrochild.effects.liquify
 
             using (Surface tempDst = new Surface(cachedSource.Size))
             {
-                mesh.Render(tempDst, cachedSource, canvasRect);
+                mesh.RenderSupersampled(tempDst, cachedSource, canvasRect);
 
                 using (IBitmapLock<ColorBgra32> dstLock = output.LockBgra32())
                 {
