@@ -192,6 +192,8 @@ namespace pyrochild.effects.liquify
             }
             freeze.Image = LoadIcon(t, "images.freeze.png", dpiScale);
             thaw.Image = LoadIcon(t, "images.thaw.png", dpiScale);
+            clearMask.Image = LoadIcon(t, "images.clearmask.png", dpiScale);
+            invertMask.Image = LoadIcon(t, "images.invertmask.png", dpiScale);
         }
 
         private static Bitmap LoadIcon(Type resourceType, string resourceName, float dpiScale)
@@ -230,6 +232,8 @@ namespace pyrochild.effects.liquify
             tooltip.SetToolTip(load, "Load mesh");
             tooltip.SetToolTip(freeze, "Freeze");
             tooltip.SetToolTip(thaw, "Thaw");
+            tooltip.SetToolTip(clearMask, "Thaw everything");
+            tooltip.SetToolTip(invertMask, "Invert frozen area");
             meshSmall.ToolTipText = "Show mesh (fine)";
             meshLarge.ToolTipText = "Show mesh (coarse)";
             undo.ToolTipText= "Undo";
@@ -311,6 +315,31 @@ namespace pyrochild.effects.liquify
 
             UpdateGrid();
         }
+
+        private void clearMask_Click(object sender, EventArgs e)
+        {
+            ChangeMask(mesh.ClearMask);
+        }
+
+        private void invertMask_Click(object sender, EventArgs e)
+        {
+            ChangeMask(mesh.InvertMask);
+        }
+
+        private void ChangeMask(Action change)
+        {
+            if (strokePending)
+            {
+                return;
+            }
+
+            change();
+            historystack.AddHistoryItem(mesh, mesh.Bounds);
+            UpdateHistoryButtons();
+            RenderPreview(source.Bounds);
+            canvas.InvalidateCanvas();
+        }
+
         // Space is the pan key (see CanvasPanel), so don't let it press whichever button has focus.
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
@@ -396,6 +425,8 @@ namespace pyrochild.effects.liquify
             ok.Enabled = !pending;
             load.Enabled = !pending;
             save.Enabled = !pending;
+            clearMask.Enabled = !pending;
+            invertMask.Enabled = !pending;
         }
 
         // Stops the render thread and waits for it, so nothing is still drawing when the surfaces go away.

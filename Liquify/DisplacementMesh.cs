@@ -203,6 +203,32 @@ namespace pyrochild.effects.liquify
             });
         }
 
+        public unsafe void ClearMask()
+        {
+            ForEachRow(Bounds, y =>
+            {
+                DisplacementVector* ptr = GetPointAddressUnchecked(0, y);
+                for (int x = 0; x < width; ++x)
+                {
+                    ptr->Mask = 0;
+                    ++ptr;
+                }
+            });
+        }
+
+        public unsafe void InvertMask()
+        {
+            ForEachRow(Bounds, y =>
+            {
+                DisplacementVector* ptr = GetPointAddressUnchecked(0, y);
+                for (int x = 0; x < width; ++x)
+                {
+                    ptr->Mask = (byte)(255 - ptr->Mask);
+                    ++ptr;
+                }
+            });
+        }
+
         public void Dispose()
         {
             this.Dispose(true);

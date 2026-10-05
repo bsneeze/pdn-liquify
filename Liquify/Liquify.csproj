@@ -97,6 +97,8 @@
     <EmbeddedResource Include="images\plus.png" />
     <EmbeddedResource Include="images\reconstruct.png" />
     <EmbeddedResource Include="images\colorwheel.png" />
+    <EmbeddedResource Include="images\clearmask.png" />
+    <EmbeddedResource Include="images\invertmask.png" />
   </ItemGroup>
 
 

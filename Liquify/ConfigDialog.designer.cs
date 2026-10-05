@@ -52,6 +52,8 @@ namespace pyrochild.effects.liquify
             this.reconstruct = new System.Windows.Forms.RadioButton();
             this.freeze = new System.Windows.Forms.RadioButton();
             this.thaw = new System.Windows.Forms.RadioButton();
+            this.clearMask = new System.Windows.Forms.Button();
+            this.invertMask = new System.Windows.Forms.Button();
             this.load = new System.Windows.Forms.Button();
             this.save = new System.Windows.Forms.Button();
             this.toolStripSeparator3 = new System.Windows.Forms.ToolStripSeparator();
@@ -94,6 +96,8 @@ namespace pyrochild.effects.liquify
             this.toolPanel.Controls.Add(this.reconstruct);
             this.toolPanel.Controls.Add(this.freeze);
             this.toolPanel.Controls.Add(this.thaw);
+            this.toolPanel.Controls.Add(this.clearMask);
+            this.toolPanel.Controls.Add(this.invertMask);
             this.toolPanel.Controls.Add(this.load);
             this.toolPanel.Controls.Add(this.save);
             this.toolPanel.Dock = System.Windows.Forms.DockStyle.Left;
@@ -195,9 +199,29 @@ namespace pyrochild.effects.liquify
             this.thaw.TabStop = true;
             this.thaw.UseVisualStyleBackColor = true;
             // 
+            // clearMask
+            // 
+            this.clearMask.Location = new System.Drawing.Point(2, 236);
+            this.clearMask.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
+            this.clearMask.Name = "clearMask";
+            this.clearMask.Size = new System.Drawing.Size(26, 26);
+            this.clearMask.TabIndex = 10;
+            this.clearMask.UseVisualStyleBackColor = true;
+            this.clearMask.Click += new System.EventHandler(this.clearMask_Click);
+            // 
+            // invertMask
+            // 
+            this.invertMask.Location = new System.Drawing.Point(2, 262);
+            this.invertMask.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
+            this.invertMask.Name = "invertMask";
+            this.invertMask.Size = new System.Drawing.Size(26, 26);
+            this.invertMask.TabIndex = 11;
+            this.invertMask.UseVisualStyleBackColor = true;
+            this.invertMask.Click += new System.EventHandler(this.invertMask_Click);
+            // 
             // load
             // 
-            this.load.Location = new System.Drawing.Point(2, 250);
+            this.load.Location = new System.Drawing.Point(2, 302);
             this.load.Margin = new System.Windows.Forms.Padding(2, 14, 2, 0);
             this.load.Name = "load";
             this.load.Size = new System.Drawing.Size(26, 26);
@@ -207,7 +231,7 @@ namespace pyrochild.effects.liquify
             // 
             // save
             // 
-            this.save.Location = new System.Drawing.Point(2, 276);
+            this.save.Location = new System.Drawing.Point(2, 328);
             this.save.Margin = new System.Windows.Forms.Padding(2, 0, 2, 0);
             this.save.Name = "save";
             this.save.Size = new System.Drawing.Size(26, 26);
@@ -506,6 +530,8 @@ namespace pyrochild.effects.liquify
         private ToolStripButton zoomIn;
         private RadioButton freeze;
         private RadioButton thaw;
+        private Button clearMask;
+        private Button invertMask;
         private ToolStripSeparator toolStripSeparator3;
         private ToolStripButton meshSmall;
         private ToolStripButton meshLarge;
