@@ -534,8 +534,12 @@ namespace pyrochild.effects.common
                 return false;
             }
 
-            return RectangleToScreen(ClientRectangle).Contains(Cursor.Position);
+            // a drop-down or menu open over the canvas is a window of its own, and gets its own wheel
+            return WindowFromPoint(Cursor.Position) == this.Handle;
         }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(Point point);
 
         /// <summary>
         /// Scrolls sideways for a horizontal wheel or a two-finger sideways swipe on a touchpad. WinForms
