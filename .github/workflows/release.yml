@@ -25,7 +25,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the tags are needed, to see which versions are taken
 
@@ -64,7 +64,7 @@ jobs:
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "configuration=$(if ('${{ inputs.beta }}' -eq 'true') { 'Debug' } else { 'Release' })" >> $env:GITHUB_OUTPUT
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 9.0.x
 
@@ -104,6 +104,8 @@ jobs:
           Copy-Item $dll.FullName (Join-Path $out 'Liquify.dll')
           Copy-Item LICENSE (Join-Path $out 'LICENSE.txt')
           Compress-Archive (Join-Path $out 'Liquify.dll'), (Join-Path $out 'LICENSE.txt') (Join-Path $out 'Liquify-${{ steps.version.outputs.version }}.zip')
+
+          Set-Content (Join-Path $out 'version.txt') '${{ steps.version.outputs.version }}' -NoNewline -Encoding ascii
           "dir=$out" >> $env:GITHUB_OUTPUT
 
       # The notes are the top section of RELEASE_NOTES.md if the repository has one; otherwise
@@ -116,8 +118,8 @@ jobs:
           $out = '${{ steps.files.outputs.dir }}'
           $arguments = @(
             'release', 'create', '${{ steps.version.outputs.tag }}',
-            (Join-Path $out 'Liquify.dll'),
             (Join-Path $out 'Liquify-${{ steps.version.outputs.version }}.zip'),
+            (Join-Path $out 'version.txt'),
             '--target', $env:GITHUB_SHA,
             '--title', 'Liquify ${{ steps.version.outputs.version }}')
 
