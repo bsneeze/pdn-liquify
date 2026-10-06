@@ -7,6 +7,10 @@
 // .                                                                           //
 /////////////////////////////////////////////////////////////////////////////////
 
+// This file comes from the Paint.NET source code and has been modified for this plugin.
+// Modifications Copyright (C) Zach Walker. The Paint.NET license that the notice above
+// refers to is reproduced in the LICENSE file at the root of this repository.
+
 using System;
 using System.Collections;
 using System.ComponentModel;
