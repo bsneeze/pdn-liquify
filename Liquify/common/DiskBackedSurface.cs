@@ -24,9 +24,12 @@ namespace pyrochild.effects.liquify
     public sealed class DiskBackedSurface
         : IDisposable
     {
+        // The file is made when the data is first written and kept open from then on. It is
+        // marked delete-on-close, so Windows removes it when this is disposed and also when the
+        // process ends any other way, a crash included.
+        private FileStream file;
         private string backingfile;
         private State state;
-        private bool written;
         private DisplacementMesh surface;
         private int width;
         private int height;
@@ -35,8 +38,32 @@ namespace pyrochild.effects.liquify
         {
             width = surface.Width;
             height = surface.Height;
-            backingfile = Path.GetTempFileName();
             state = State.Memory;
+        }
+
+        private void Write(DisplacementMesh mesh, Rectangle rect)
+        {
+            backingfile = Path.Combine(Path.GetTempPath(), "Liquify-" + Guid.NewGuid().ToString("N") + ".tmp");
+            file = new FileStream(backingfile, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
+
+            try
+            {
+                // most of a mesh is zeros or smooth, so even the fastest compression shrinks it a lot
+                using (DeflateStream ds = new DeflateStream(file, CompressionLevel.Fastest, true))
+                {
+                    FailIfTesting();
+                    mesh.SaveRaw(ds, rect);
+                }
+
+                // so a full disk shows up now and not when the data is wanted back
+                file.Flush();
+            }
+            catch
+            {
+                file.Dispose();
+                file = null;
+                throw;
+            }
         }
 
         public DiskBackedSurface(int width, int height)
@@ -92,24 +119,7 @@ namespace pyrochild.effects.liquify
             DiskBackedSurface ret = new DiskBackedSurface();
             ret.width = rect.Width;
             ret.height = rect.Height;
-            ret.backingfile = Path.GetTempFileName();
-
-            try
-            {
-                using (FileStream fs = new FileStream(ret.backingfile, FileMode.Create))
-                using (DeflateStream ds = new DeflateStream(fs, CompressionLevel.Fastest))
-                {
-                    FailIfTesting();
-                    mesh.SaveRaw(ds, rect);
-                }
-            }
-            catch
-            {
-                File.Delete(ret.backingfile);
-                throw;
-            }
-
-            ret.written = true;
+            ret.Write(mesh, rect);
             ret.state = State.Disk;
             return ret;
         }
@@ -126,11 +136,19 @@ namespace pyrochild.effects.liquify
         {
             if (state == State.Memory) { return; }
 
-            using (FileStream fs = new FileStream(backingfile, FileMode.Open, FileAccess.Read))
-            using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
+            file.Seek(0, SeekOrigin.Begin);
+            using (DeflateStream ds = new DeflateStream(file, CompressionMode.Decompress, true))
             {
                 DisplacementMesh loaded = new DisplacementMesh(width, height);
-                loaded.LoadRaw(ds);
+                try
+                {
+                    loaded.LoadRaw(ds);
+                }
+                catch
+                {
+                    loaded.Dispose();
+                    throw;
+                }
                 surface = loaded;
                 state = State.Memory;
             }
@@ -141,16 +159,9 @@ namespace pyrochild.effects.liquify
             if (state == State.Disk) { return; }
 
             // the surface isn't modified once it has been written, so the file only needs writing once
-            if (!written)
+            if (file == null)
             {
-                // most of a mesh is zeros or smooth, so even the fastest compression shrinks it a lot
-                using (FileStream fs = new FileStream(backingfile, FileMode.Create))
-                using (DeflateStream ds = new DeflateStream(fs, CompressionLevel.Fastest))
-                {
-                    FailIfTesting();
-                    surface.SaveRaw(ds);
-                }
-                written = true;
+                Write(surface, surface.Bounds);
             }
 
             surface.Dispose();
@@ -161,7 +172,11 @@ namespace pyrochild.effects.liquify
 
         public void Dispose()
         {
-            File.Delete(backingfile);
+            if (file != null)
+            {
+                file.Dispose();
+                file = null;
+            }
             if (surface != null)
             {
                 surface.Dispose();

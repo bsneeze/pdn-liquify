@@ -459,6 +459,12 @@ namespace pyrochild.effects.liquify.tests
                 Assert.True(File.Exists(file));
                 Assert.Equal(rect.Size, stored.Size);
 
+                // it is held open, which is what lets Windows remove it if the program dies
+                Assert.Throws<IOException>(() => File.Delete(file));
+
+                // and can be read more than once
+                stored.ToMemory();
+                stored.ToDisk();
                 stored.ToMemory();
                 for (int y = 0; y < rect.Height; ++y)
                 {
