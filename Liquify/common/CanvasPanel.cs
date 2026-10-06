@@ -673,7 +673,7 @@ namespace pyrochild.effects.common
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            if (surface != null && canvasBackgroundImage == null)
+            if (surface != null)
             {
                 DrawComposited(g, clip);
                 return;
@@ -770,8 +770,8 @@ namespace pyrochild.effects.common
                     int srcStride = surface.Stride;
 
                     // the optional image behind the canvas's own, pixel for pixel
-                    Surface background = (backgroundSurfaceHidden || previewingBackColor) ? null : backgroundSurface;
-                    if (background != null && (background.IsDisposed || background.Size != surface.Size))
+                    Surface background = (backgroundSurfaceHidden || previewingBackColor) ? null : (backgroundSurface ?? BackgroundImageSurface());
+                    if (background != null && (background.IsDisposed || background.Size != SurfaceSize))
                     {
                         background = null;
                     }
@@ -1065,6 +1065,11 @@ namespace pyrochild.effects.common
             }
         }
 
+        private Size SurfaceSize
+        {
+            get { return new Size(surface.Width, surface.Height); }
+        }
+
         public Color CanvasBackColor
         {
             get
@@ -1098,7 +1103,7 @@ namespace pyrochild.effects.common
                 activeBackgroundOption = null; // SelectBackgroundOption sets it again afterwards
                 if (value != null)
                 {
-                    canvasBackgroundImage = null;
+                    SetBackgroundImage(null);
                     canvasBackColor = Color.Transparent;
                 }
                 InvalidateCanvas();
@@ -1108,6 +1113,58 @@ namespace pyrochild.effects.common
                     BackgroundSurfaceChanged(this, EventArgs.Empty);
                 }
             }
+        }
+
+        // canvasBackgroundImage stretched to the image's size, which is what DrawComposited needs.
+        // Made when first needed, and again if the image's size changes.
+        private Surface backgroundImageSurface;
+
+        /// <summary>
+        /// Makes a picture the background, stretched over the image; null removes it. The canvas
+        /// takes ownership of it.
+        /// </summary>
+        internal void SetBackgroundImage(Image picture)
+        {
+            if (canvasBackgroundImage != null && canvasBackgroundImage != picture)
+            {
+                canvasBackgroundImage.Dispose();
+            }
+
+            if (backgroundImageSurface != null)
+            {
+                backgroundImageSurface.Dispose();
+                backgroundImageSurface = null;
+            }
+
+            canvasBackgroundImage = picture;
+        }
+
+        private Surface BackgroundImageSurface()
+        {
+            if (canvasBackgroundImage == null)
+            {
+                return null;
+            }
+
+            if (backgroundImageSurface == null || backgroundImageSurface.Size != SurfaceSize)
+            {
+                if (backgroundImageSurface != null)
+                {
+                    backgroundImageSurface.Dispose();
+                }
+
+                backgroundImageSurface = new Surface(surface.Width, surface.Height);
+                using (Bitmap pixels = backgroundImageSurface.CreateAliasedBitmap())
+                using (Graphics g = Graphics.FromImage(pixels))
+                {
+                    g.CompositingMode = CompositingMode.SourceCopy;
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    g.DrawImage(canvasBackgroundImage, 0, 0, pixels.Width, pixels.Height);
+                }
+            }
+
+            return backgroundImageSurface;
         }
 
         /// <summary>
@@ -1701,7 +1758,7 @@ namespace pyrochild.effects.common
             {
                 if (onCanvas)
                 {
-                    canvasBackgroundImage = null;
+                    SetBackgroundImage(null);
                     BackgroundSurface = null;
                     canvasBackColor = color;
                 }
@@ -1849,7 +1906,7 @@ namespace pyrochild.effects.common
                     {
                         try
                         {
-                            canvasBackgroundImage = Clipboard.GetImage();
+                            SetBackgroundImage(ReadClipboardImage());
                             BackgroundSurface = null;
                             canvasBackColor = Color.Transparent;
                             this.Invalidate();

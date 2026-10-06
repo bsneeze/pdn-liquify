@@ -32,6 +32,8 @@ namespace pyrochild.effects.common
                 clipboardSwatch?.Dispose();
                 clipboardSwatch = null;
 
+                SetBackgroundImage(null);
+
                 painter.Dispose();
             }
             base.Dispose(disposing);

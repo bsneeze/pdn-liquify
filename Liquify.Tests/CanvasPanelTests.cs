@@ -528,6 +528,86 @@ namespace pyrochild.effects.liquify.tests
             });
         }
 
+        private static Bitmap SolidPicture(int width, int height, Color color)
+        {
+            Bitmap picture = new Bitmap(width, height);
+            using (Graphics g = Graphics.FromImage(picture))
+            {
+                g.Clear(color);
+            }
+            return picture;
+        }
+
+        private static bool IsDisposed(Image image)
+        {
+            try
+            {
+                return image.Width < 0;
+            }
+            catch (ArgumentException)
+            {
+                return true; // what GDI+ throws for a disposed image
+            }
+        }
+
+        [Fact]
+        public void A_picture_as_the_background_shows_through_and_keeps_the_overlay_and_the_layers_in_front()
+        {
+            WithCanvas(PartlyTransparentSurface, canvas =>
+            {
+                canvas.ZoomFactor = 1f;
+
+                // not the image's size: it gets stretched
+                Bitmap green = SolidPicture(64, 48, Color.FromArgb(20, 220, 40));
+                canvas.SetBackgroundImage(green);
+
+                Color transparentPart = DrawnAt(canvas, 50, 50);
+                Assert.Equal(Color.FromArgb(20, 220, 40).ToArgb(), Color.FromArgb(transparentPart.R, transparentPart.G, transparentPart.B).ToArgb());
+
+                Color opaquePart = DrawnAt(canvas, 350, 50);
+                Assert.Equal(Color.FromArgb(200, 0, 0).ToArgb(), Color.FromArgb(opaquePart.R, opaquePart.G, opaquePart.B).ToArgb());
+
+                // the row overlay still runs
+                int overlayRows = 0;
+                canvas.RowOverlay = (pixels, x, y, count, scale) => System.Threading.Interlocked.Increment(ref overlayRows);
+                DrawnAt(canvas, 50, 50);
+                Assert.True(overlayRows > 0, "the overlay was not drawn");
+                canvas.RowOverlay = null;
+
+                // and so does a layer in front
+                using (Surface blue = new Surface(400, 300))
+                {
+                    blue.Fill(ColorBgra.FromBgra(255, 0, 0, 255));
+                    canvas.ForegroundLayers = new[] { new CanvasForegroundLayer(blue) };
+
+                    Color covered = DrawnAt(canvas, 50, 50);
+                    Assert.Equal(Color.FromArgb(0, 0, 255).ToArgb(), Color.FromArgb(covered.R, covered.G, covered.B).ToArgb());
+
+                    canvas.ForegroundLayers = null;
+                }
+
+                // BackgroundSurfaceHidden hides it too
+                canvas.BackgroundSurfaceHidden = true;
+                Color hidden = DrawnAt(canvas, 50, 50);
+                Assert.True(hidden.R == hidden.G && hidden.G == hidden.B && hidden.R >= 191, "expected checkerboard, drew " + hidden);
+                canvas.BackgroundSurfaceHidden = false;
+
+                // replacing or removing it disposes the old picture
+                Bitmap yellow = SolidPicture(10, 10, Color.Yellow);
+                canvas.SetBackgroundImage(yellow);
+                Assert.True(IsDisposed(green));
+
+                Color replaced = DrawnAt(canvas, 50, 50);
+                Assert.Equal(Color.Yellow.ToArgb(), Color.FromArgb(replaced.R, replaced.G, replaced.B).ToArgb());
+
+                canvas.SetBackgroundImage(null);
+                Assert.True(IsDisposed(yellow));
+
+                Color after = DrawnAt(canvas, 50, 50);
+                Assert.True(after.R == after.G && after.G == after.B && after.R >= 191, "expected checkerboard, drew " + after);
+            });
+        }
+
         [Fact]
         public void The_owner_can_end_a_drag_without_waiting_for_the_button()
         {
