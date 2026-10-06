@@ -497,7 +497,10 @@ namespace pyrochild.effects.liquify
         // While its button is held the canvas shows the document as it will look: the layers beneath,
         // this layer with its own blend mode and opacity, and the layers above. The canvas's image
         // becomes the layers beneath, and the preview is drawn over it as the first foreground layer.
-        private Surface layersBeneathSurface; // made on first use and kept, so later presses are instant
+        // Made on first use and kept, so later presses are instant. Null while the "all layers
+        // beneath" background is in use: that is the same picture, and is shown instead.
+        private Surface layersBeneathSurface;
+        private bool allLayersShown; // "all layers" has been used, so the picture is worth keeping
 
         private void SetCompositing(bool composite)
         {
@@ -510,6 +513,8 @@ namespace pyrochild.effects.liquify
 
             if (composite)
             {
+                allLayersShown = true;
+
                 Cursor previous = Cursor.Current;
                 Cursor.Current = Cursors.WaitCursor;
                 try
@@ -1144,18 +1149,43 @@ namespace pyrochild.effects.liquify
                 GetLayerRange(kind, out first, out end, out visibleOnly);
 
                 Surface previous = layerBackground;
-                layerBackground = LayerCompositor.Render(Environment.Document, first, end, visibleOnly);
+                CanvasBackground previousKind = layerBackgroundKind;
+
+                if (kind == CanvasBackground.AllLayersBeneath && layersBeneathSurface != null)
+                {
+                    // "all layers" already made this picture
+                    layerBackground = layersBeneathSurface;
+                    layersBeneathSurface = null;
+                }
+                else
+                {
+                    layerBackground = LayerCompositor.Render(Environment.Document, first, end, visibleOnly);
+                }
                 layerBackgroundKind = kind;
 
                 if (previous != null)
                 {
                     // the canvas is still showing it, so let go of that first
                     canvas.BackgroundSurface = layerBackground;
-                    previous.Dispose();
+                    ReleaseLayerBackground(previous, previousKind);
                 }
             }
 
             return layerBackground;
+        }
+
+        // The "all layers beneath" picture is also what "all layers" shows, and may be on the canvas
+        // for that right now, so once that has been used it is kept instead of freed.
+        private void ReleaseLayerBackground(Surface background, CanvasBackground kind)
+        {
+            if (kind == CanvasBackground.AllLayersBeneath && allLayersShown && layersBeneathSurface == null)
+            {
+                layersBeneathSurface = background;
+            }
+            else
+            {
+                background.Dispose();
+            }
         }
 
         private Image GetLayerBackgroundPreview(CanvasBackground kind, ref Image preview)
@@ -1180,7 +1210,7 @@ namespace pyrochild.effects.liquify
         {
             if (layerBackground != null && canvas.BackgroundSurface != layerBackground)
             {
-                layerBackground.Dispose();
+                ReleaseLayerBackground(layerBackground, layerBackgroundKind);
                 layerBackground = null;
             }
         }
