@@ -620,17 +620,25 @@ namespace pyrochild.effects.liquify
                 return;
             }
 
-            // if it can't be made undoable it isn't done, or is put back by AddHistoryItem
-            if (!historystack.BeforeChange(mesh, mesh.Bounds))
+            // The whole mesh is written to disk twice here, which takes a moment on a large image.
+            bool recorded = false;
+            Cursor previous = Cursor.Current;
+            Cursor.Current = Cursors.WaitCursor;
+            try
             {
-                ConfirmDialog.Notify(this, this.Text, NotUndoableMessage(), SystemIcons.Warning);
-                return;
+                // if it can't be made undoable it isn't done, or is put back by AddHistoryItem
+                if (historystack.BeforeChange(mesh, mesh.Bounds))
+                {
+                    change();
+                    recorded = historystack.AddHistoryItem(mesh, mesh.Bounds);
+                    UpdateHistoryButtons();
+                    RenderWholePreview();
+                }
             }
-
-            change();
-            bool recorded = historystack.AddHistoryItem(mesh, mesh.Bounds);
-            UpdateHistoryButtons();
-            RenderWholePreview();
+            finally
+            {
+                Cursor.Current = previous;
+            }
 
             if (!recorded)
             {
@@ -766,81 +774,93 @@ namespace pyrochild.effects.liquify
 
         void renderer_MouseUp(object sender, QueuedToolEventArgs e)
         {
-            // Runs on the render thread. The history item has to be captured before the renderer touches
-            // the mesh again, so wait for the UI thread to do it, but give up if the dialog closes meanwhile:
-            // the UI thread is then waiting for this thread to stop.
+            // Runs on the render thread, which owns the mesh until the stroke has been recorded. So
+            // the stroke is written out for undo right here: that can take a second for a large
+            // one, and this way the window stays live meanwhile. The UI thread only adds the step.
             if (closing)
             {
                 return;
             }
 
-            ManualResetEventSlim done = new ManualResetEventSlim(false);
+            Rectangle strokeRect = renderer.PopTotalInvalidRect();
+            HistoryItem? item = null;
+            HistoryFailure failure = HistoryFailure.None;
+            Exception notPutBack = null;
+            try
+            {
+                failure = historystack.CaptureChange(mesh, strokeRect, out item);
+            }
+            catch (Exception ex)
+            {
+                notPutBack = ex;
+            }
+
+            bool recorded = failure == HistoryFailure.None && notPutBack == null;
+            if (!recorded && !closing)
+            {
+                // the stroke has been taken back out of the mesh
+                RenderPreview(Rectangle.Intersect(strokeRect, source.Bounds));
+                canvas.InvalidateCanvas();
+            }
+
             try
             {
                 this.BeginInvoke(new Action(() =>
                 {
-                    try
+                    if (closing)
                     {
-                        if (!closing)
+                        if (item.HasValue)
                         {
-                            Rectangle strokeRect = renderer.PopTotalInvalidRect();
-                            bool recorded = historystack.AddHistoryItem(mesh, strokeRect);
-
-                            if (!recorded)
-                            {
-                                // the stroke has been taken back out of the mesh
-                                RenderPreview(Rectangle.Intersect(strokeRect, source.Bounds));
-                                canvas.InvalidateCanvas();
-                            }
-
-                            SetStrokePending(false);
-
-                            bool stopped = strokeRanOutOfMemory;
-                            strokeRanOutOfMemory = false;
-
-                            if (stopped || !recorded)
-                            {
-                                // one message, whatever went wrong
-                                // a stroke only ever stops for want of memory; recording it can fail on either
-                                bool disk = !recorded && historystack.LastFailure == HistoryFailure.Disk;
-                                bool memory = stopped || (!recorded && !disk);
-
-                                string message =
-                                    recorded ? "There wasn't enough memory to continue that stroke, so it was stopped. What it had done so far can be undone." :
-                                    stopped && disk ? "There wasn't enough memory to continue that stroke, and not enough disk space to record what it had done for undo, so it has been undone." :
-                                    stopped ? "There wasn't enough memory to continue that stroke, or to record what it had done for undo, so it has been undone." :
-                                    disk ? "There wasn't enough disk space to record that stroke for undo, so it has been undone." :
-                                    "There wasn't enough memory to record that stroke for undo, so it has been undone.";
-                                message += WhatToDo(memory, disk);
-
-                                // after this returns, so the render thread isn't kept waiting on a dialog
-                                this.BeginInvoke(new Action(() =>
-                                {
-                                    if (!closing)
-                                    {
-                                        ConfirmDialog.Notify(this, this.Text, message, SystemIcons.Warning);
-                                    }
-                                }));
-                            }
+                            item.Value.Dispose();
                         }
+                        return;
                     }
-                    finally
+
+                    if (item.HasValue)
                     {
-                        done.Set();
+                        historystack.Commit(item.Value);
                     }
+
+                    SetStrokePending(false);
+
+                    bool stopped = strokeRanOutOfMemory;
+                    strokeRanOutOfMemory = false;
+
+                    if (closing || (!stopped && recorded))
+                    {
+                        return;
+                    }
+
+                    // one message, whatever went wrong
+                    string message;
+                    if (notPutBack != null)
+                    {
+                        message = "That stroke couldn't be recorded for undo, and it couldn't be taken back out either. Undo may not work as expected from here on. OK still applies what you see.\n\n" + notPutBack.Message;
+                    }
+                    else
+                    {
+                        // a stroke only ever stops for want of memory; recording it can fail on either
+                        bool disk = failure == HistoryFailure.Disk;
+                        bool memory = stopped || failure == HistoryFailure.Memory;
+
+                        message =
+                            recorded ? "There wasn't enough memory to continue that stroke, so it was stopped. What it had done so far can be undone." :
+                            stopped && disk ? "There wasn't enough memory to continue that stroke, and not enough disk space to record what it had done for undo, so it has been undone." :
+                            stopped ? "There wasn't enough memory to continue that stroke, or to record what it had done for undo, so it has been undone." :
+                            disk ? "There wasn't enough disk space to record that stroke for undo, so it has been undone." :
+                            "There wasn't enough memory to record that stroke for undo, so it has been undone.";
+                        message += WhatToDo(memory, disk);
+                    }
+
+                    ConfirmDialog.Notify(this, this.Text, message, SystemIcons.Warning);
                 }));
             }
             catch (InvalidOperationException)
             {
                 // the window is already gone
-                return;
-            }
-
-            while (!done.Wait(50))
-            {
-                if (closing)
+                if (item.HasValue)
                 {
-                    return;
+                    item.Value.Dispose();
                 }
             }
         }
@@ -1790,6 +1810,10 @@ namespace pyrochild.effects.liquify
             ofd.Filter = dialogFilter;
             if (ofd.ShowDialog(this) == DialogResult.OK)
             {
+                // reading the file and saving the mesh for undo take a moment on a large image;
+                // the cursor goes back by itself once that is over
+                Cursor.Current = Cursors.WaitCursor;
+
                 try
                 {
                     if (!historystack.BeforeChange(mesh, mesh.Bounds))

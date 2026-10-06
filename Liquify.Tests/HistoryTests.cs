@@ -250,6 +250,116 @@ namespace pyrochild.effects.liquify.tests
             }
         }
 
+        [Fact]
+        public void A_change_captured_on_another_thread_becomes_a_step_once_it_is_committed()
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(300, 200))
+            using (HistoryStack history = new HistoryStack())
+            {
+                Edit(mesh, mesh.Bounds, 3, 20);
+                Rectangle stroke = new Rectangle(40, 30, 150, 100);
+
+                using (DisplacementMesh before = mesh.Clone())
+                {
+                    HistoryItem? item = null;
+                    HistoryFailure failure = HistoryFailure.Disk;
+
+                    // as the render thread does: save, change and capture, all off this thread
+                    System.Threading.Thread worker = new System.Threading.Thread(() =>
+                    {
+                        history.BeforeChange(mesh, stroke);
+                        Edit(mesh, stroke, 900, 200);
+                        failure = history.CaptureChange(mesh, stroke, out item);
+                    });
+                    worker.Start();
+                    worker.Join();
+
+                    Assert.Equal(HistoryFailure.None, failure);
+                    Assert.True(item.HasValue);
+                    Assert.Equal(0, history.PendingVectorCount);
+
+                    // captured, but not a step yet
+                    Assert.False(history.CanStepBack);
+
+                    history.Commit(item.Value);
+                    Assert.True(history.CanStepBack);
+
+                    using (DisplacementMesh after = mesh.Clone())
+                    {
+                        Assert.Equal(stroke, history.StepBack(mesh));
+                        Assert.Null(TestHelpers.FirstDifference(before, mesh));
+
+                        history.StepForward(mesh);
+                        Assert.Null(TestHelpers.FirstDifference(after, mesh));
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void A_capture_that_fails_says_what_ran_out_and_puts_the_mesh_back()
+        {
+            const HistoryFailure expected = HistoryFailure.Disk;
+
+            using (DisplacementMesh mesh = new DisplacementMesh(300, 200))
+            using (HistoryStack history = new HistoryStack())
+            {
+                Edit(mesh, mesh.Bounds, 3, 20);
+                Rectangle stroke = new Rectangle(40, 30, 150, 100);
+
+                using (DisplacementMesh before = mesh.Clone())
+                {
+                    Assert.True(history.BeforeChange(mesh, stroke));
+                    Edit(mesh, stroke, 900, 200);
+
+                    HistoryItem? item;
+                    HistoryFailure failure;
+                    DiskBackedSurface.TestFailWritesOnThisThread = true;
+                    try
+                    {
+                        failure = history.CaptureChange(mesh, stroke, out item);
+                    }
+                    finally
+                    {
+                        DiskBackedSurface.TestFailWritesOnThisThread = false;
+                    }
+
+                    Assert.Equal(expected, failure);
+                    Assert.False(item.HasValue);
+                    Assert.Null(TestHelpers.FirstDifference(before, mesh));
+                    Assert.False(history.CanStepBack);
+                    Assert.Equal(0, history.PendingVectorCount);
+                }
+            }
+        }
+
+        [Fact]
+        public void A_captured_change_that_is_dropped_leaves_no_files_and_no_step()
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(120, 90))
+            using (HistoryStack history = new HistoryStack())
+            {
+                Rectangle stroke = new Rectangle(10, 10, 60, 40);
+                history.BeforeChange(mesh, stroke);
+                Edit(mesh, stroke, 50);
+
+                HistoryItem? item;
+                Assert.Equal(HistoryFailure.None, history.CaptureChange(mesh, stroke, out item));
+
+                string beforeFile = item.Value.Before.BackingFilePath;
+                string afterFile = item.Value.After.BackingFilePath;
+                Assert.True(File.Exists(beforeFile));
+                Assert.True(File.Exists(afterFile));
+
+                // what the dialog does when it closes before the step is added
+                item.Value.Dispose();
+
+                Assert.False(File.Exists(beforeFile));
+                Assert.False(File.Exists(afterFile));
+                Assert.False(history.CanStepBack);
+            }
+        }
+
         // makes a history stack behave as if memory ran out after it had been given so many pieces
         private static void RunOutOfMemoryAfter(HistoryStack history, int pieces)
         {

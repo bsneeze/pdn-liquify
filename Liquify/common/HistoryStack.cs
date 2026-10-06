@@ -212,6 +212,45 @@ namespace pyrochild.effects.liquify
         /// </returns>
         public bool AddHistoryItem(DisplacementMesh mesh, Rectangle bounds)
         {
+            try
+            {
+                HistoryItem? item;
+                if (CaptureChange(mesh, bounds, out item) != HistoryFailure.None)
+                {
+                    return false;
+                }
+
+                if (item.HasValue)
+                {
+                    Commit(item.Value);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // not even putting it back worked
+                OnError(ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The slow half of AddHistoryItem: writes out the change that BeforeChange was called
+        /// for. Like BeforeChange it may run on whichever thread owns the mesh, and it doesn't
+        /// touch the steps themselves, so undo state can be read from the UI thread meanwhile.
+        /// </summary>
+        /// <param name="item">
+        /// The step to hand to Commit, or to dispose if it isn't wanted after all. Null when
+        /// nothing changed or the capture failed.
+        /// </param>
+        /// <returns>
+        /// What ran out, if the change could not be captured. The mesh has then been put back the
+        /// way it was before the change. Throws if even that failed.
+        /// </returns>
+        public HistoryFailure CaptureChange(DisplacementMesh mesh, Rectangle bounds, out HistoryItem? item)
+        {
+            item = null;
+
             lock (sync)
             {
                 try
@@ -219,10 +258,9 @@ namespace pyrochild.effects.liquify
                     Rectangle rect = Rectangle.Intersect(mesh.Bounds, bounds);
                     if (rect.Width <= 0 || rect.Height <= 0)
                     {
-                        return true;
+                        return HistoryFailure.None;
                     }
 
-                    HistoryItem item;
                     DiskBackedSurface before = null;
                     try
                     {
@@ -231,13 +269,14 @@ namespace pyrochild.effects.liquify
                     }
                     catch (Exception ex)
                     {
-                        LastFailure = Classify(ex);
+                        HistoryFailure failure = Classify(ex);
+                        LastFailure = failure;
                         if (before != null && before != beforeWhole)
                         {
                             before.Dispose();
                         }
                         Restore(mesh);
-                        return false;
+                        return failure;
                     }
 
                     if (before == beforeWhole)
@@ -245,22 +284,23 @@ namespace pyrochild.effects.liquify
                         beforeWhole = null; // the item owns it now
                     }
 
-                    RemoveRedoItems();
-                    stack.Add(item);
-                    step++;
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    // not even putting it back worked
-                    OnError(ex);
-                    return false;
+                    return HistoryFailure.None;
                 }
                 finally
                 {
                     ClearPending();
                 }
             }
+        }
+
+        /// <summary>
+        /// Makes a captured change the newest step. Like undo and redo, only from the UI thread.
+        /// </summary>
+        public void Commit(HistoryItem item)
+        {
+            RemoveRedoItems();
+            stack.Add(item);
+            step++;
         }
 
         // Puts back what the change in progress has overwritten. Copying the tiles back needs no
