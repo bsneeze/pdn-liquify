@@ -321,7 +321,7 @@ namespace pyrochild.effects.liquify
             original.ToolTipText = "Hold to see the original image (O)";
             allLayers.ToolTipText = "Hold to see every visible layer of the document, with this layer's changes and without the tint or the grid (A)";
             undo.ToolTipText = "Undo (Ctrl+Z)";
-            redo.ToolTipText = "Redo (Ctrl+Y)";
+            redo.ToolTipText = "Redo (Ctrl+Y or Ctrl+Shift+Z)";
             brushSizeIncrement.ToolTipText = "Increase brush size (], or Ctrl+] for 5)";
             brushSizeDecrement.ToolTipText = "Decrease brush size ([, or Ctrl+[ for 5)";
 
@@ -1495,7 +1495,15 @@ namespace pyrochild.effects.liquify
                 }
                 else if (e.KeyChar == undoShortcut && (ModifierKeys & Keys.Control) != 0)
                 {
-                    DoUndo();
+                    // Ctrl+Shift+Z arrives as the same character
+                    if ((ModifierKeys & Keys.Shift) != 0)
+                    {
+                        DoRedo();
+                    }
+                    else
+                    {
+                        DoUndo();
+                    }
                 }
                 else if (e.KeyChar == redoShortcut && (ModifierKeys & Keys.Control) != 0)
                 {

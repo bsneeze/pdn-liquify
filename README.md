@@ -46,7 +46,7 @@ The buttons under the tools reset all distortion, thaw everything, invert the fr
 | Pan | Hold `Space` and drag, or drag with the middle button |
 | See the original | Hold `O`, or hold the **Original** button |
 | See the whole document | Hold `A`, or hold the **All layers** button |
-| Undo / redo | `Ctrl+Z` / `Ctrl+Y` |
+| Undo / redo | `Ctrl+Z` / `Ctrl+Y` or `Ctrl+Shift+Z` |
 
 The **View** menu controls what the canvas shows besides the image:
 
