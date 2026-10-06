@@ -22,9 +22,14 @@
     <Company>Zach Walker, a.k.a. pyrochild</Company>
     <Copyright>Copyright © 2010-2026 Zach Walker</Copyright>
 
-    <!-- Build/Revision come from the build date. -->
+    <!--
+      VersionPrefix is the Paint.NET version this is built for. The rest, yyMM.ddHH, tells builds
+      apart: the time of the build, unless a release passes the stamp worked out from its commit
+      (-p:LiquifyBuildStamp=2610.0614; see .github/workflows/release.yml).
+    -->
     <VersionPrefix>5.1</VersionPrefix>
-    <AssemblyVersion>$(VersionPrefix).$([System.DateTime]::Now.ToString(yyMM)).$([System.DateTime]::Now.ToString(ddHH))</AssemblyVersion>
+    <LiquifyBuildStamp Condition="'$(LiquifyBuildStamp)' == ''">$([System.DateTime]::Now.ToString(yyMM)).$([System.DateTime]::Now.ToString(ddHH))</LiquifyBuildStamp>
+    <AssemblyVersion>$(VersionPrefix).$(LiquifyBuildStamp)</AssemblyVersion>
     <FileVersion>$(AssemblyVersion)</FileVersion>
   </PropertyGroup>
 

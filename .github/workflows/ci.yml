@@ -1,0 +1,56 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+# a newer push to the same branch makes the older run pointless
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Get Paint.NET
+        id: pdn
+        uses: ./.github/actions/paintdotnet
+
+      # The build copies the plugin into the Paint.NET effects folder; here that is a scratch folder.
+      - name: Build (Debug and Release)
+        shell: pwsh
+        run: |
+          $effects = Join-Path $env:RUNNER_TEMP 'effects\'
+          foreach ($configuration in 'Debug', 'Release') {
+            dotnet build Liquify.sln -c $configuration --nologo "-p:PdnDir=${{ steps.pdn.outputs.dir }}" "-p:LiquifyEffectsDir=$effects"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Test
+        shell: pwsh
+        run: |
+          $effects = Join-Path $env:RUNNER_TEMP 'effects\'
+          dotnet test Liquify.sln -c Debug --no-build --nologo --logger "trx;LogFileName=tests.trx" "-p:PdnDir=${{ steps.pdn.outputs.dir }}" "-p:LiquifyEffectsDir=$effects"
+
+      - name: Keep the test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+      - name: Keep the built plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Liquify-${{ github.sha }}
+          path: Liquify/bin/Release/**/Liquify.dll
+          if-no-files-found: error
