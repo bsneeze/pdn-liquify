@@ -341,6 +341,9 @@ namespace pyrochild.effects.liquify
             get { return step < stack.Count - 1; }
         }
 
+        // StepBack and StepForward throw if the step can't be read back from disk or there is no
+        // memory to read it into. The mesh and the position in the history are then unchanged.
+
         /// <returns>The rect of the mesh that was changed</returns>
         public Rectangle StepBack(DisplacementMesh surface)
         {
@@ -363,9 +366,9 @@ namespace pyrochild.effects.liquify
                 return Rectangle.Empty;
             }
 
-            step++;
-            HistoryItem item = stack[step];
+            HistoryItem item = stack[step + 1];
             Apply(item.After, item.DeltaRect, surface);
+            step++;
             return item.DeltaRect;
         }
 

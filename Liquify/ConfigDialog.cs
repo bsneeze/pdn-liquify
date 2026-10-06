@@ -1517,10 +1517,7 @@ namespace pyrochild.effects.liquify
         {
             if (historystack.CanStepBack && !strokePending)
             {
-                Rectangle rect = historystack.StepBack(mesh);
-                UpdateHistoryButtons();
-                RenderPreview(rect);
-                canvas.InvalidateCanvas(rect);
+                StepHistory(historystack.StepBack, "undone");
             }
         }
 
@@ -1528,11 +1525,34 @@ namespace pyrochild.effects.liquify
         {
             if (historystack.CanStepForward && !strokePending)
             {
-                Rectangle rect = historystack.StepForward(mesh);
-                UpdateHistoryButtons();
-                RenderPreview(rect);
-                canvas.InvalidateCanvas(rect);
+                StepHistory(historystack.StepForward, "redone");
             }
+        }
+
+        // A step is read back from disk into new memory, and either can fail. The mesh is then
+        // as it was.
+        private void StepHistory(Func<DisplacementMesh, Rectangle> step, string done)
+        {
+            Rectangle rect;
+            try
+            {
+                rect = step(mesh);
+            }
+            catch (Exception ex)
+            {
+                string reason = ex is OutOfMemoryException
+                    ? "there isn't enough memory. Close other programs to free some up, then try again."
+                    : "its saved data couldn't be read back from the temporary files folder.\n\n" + ex.Message;
+
+                ConfirmDialog.Notify(this, this.Text,
+                    "That step couldn't be " + done + ": " + reason + "\n\nNothing was changed.",
+                    SystemIcons.Warning);
+                return;
+            }
+
+            UpdateHistoryButtons();
+            RenderPreview(rect);
+            canvas.InvalidateCanvas(rect);
         }
 
         private void UpdateHistoryButtons()
