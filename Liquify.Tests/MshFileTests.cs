@@ -179,6 +179,30 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void Values_that_are_not_numbers_are_loaded_as_no_distortion()
+        {
+            byte[] file = BuildFile(4, 4, (x, y) =>
+                x == 1 ? new PointF(float.NaN, float.PositiveInfinity) :
+                x == 2 ? new PointF(float.NegativeInfinity, float.NaN) :
+                new PointF(5, -6));
+
+            using (DisplacementMesh mesh = new DisplacementMesh(4, 4))
+            {
+                mesh.Load(new MemoryStream(file));
+
+                for (int y = 0; y < 4; ++y)
+                {
+                    Assert.Equal(5f, mesh[0, y].X);
+                    Assert.Equal(0f, mesh[1, y].X);
+                    Assert.Equal(0f, mesh[1, y].Y);
+                    Assert.Equal(0f, mesh[2, y].X);
+                    Assert.Equal(0f, mesh[2, y].Y);
+                    Assert.Equal(-6f, mesh[3, y].Y);
+                }
+            }
+        }
+
+        [Fact]
         public void Something_that_is_not_a_mesh_file_is_rejected_and_leaves_the_mesh_alone()
         {
             byte[] notAMesh = new byte[200];

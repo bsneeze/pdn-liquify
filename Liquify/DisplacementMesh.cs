@@ -459,8 +459,11 @@ namespace pyrochild.effects.liquify
 
             for (long i = 0; i < length; ++i)
             {
-                ptr->X = br.ReadSingle();
-                ptr->Y = br.ReadSingle();
+                // a NaN or infinity from a damaged file would spread through the mesh as it is brushed
+                float x = br.ReadSingle();
+                float y = br.ReadSingle();
+                ptr->X = float.IsFinite(x) ? x : 0;
+                ptr->Y = float.IsFinite(y) ? y : 0;
                 ++ptr;
             }
         }
