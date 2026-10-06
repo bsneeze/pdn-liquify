@@ -134,6 +134,94 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void A_real_stroke_is_undone_exactly()
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(400, 300))
+            using (HistoryStack history = new HistoryStack(mesh))
+            using (ManualResetEventSlim finished = new ManualResetEventSlim())
+            {
+                // an earlier distortion and some frozen area, for the stroke to go over
+                TestHelpers.Fill(mesh, (x, y) => new DisplacementVector(x * 0.01f, y * -0.02f, (byte)(x < 200 ? 0 : 120)));
+
+                using (DisplacementMesh before = mesh.Clone())
+                {
+                    LiquifyRenderer renderer = new LiquifyRenderer(mesh);
+                    renderer.BeforeMeshChange = rect => history.BeforeChange(mesh, rect);
+
+                    renderer.MouseUp += (s, e) => finished.Set();
+
+                    Point[] path = { new Point(60, 60), new Point(150, 120), new Point(260, 100), new Point(390, 290) };
+                    renderer.AddEvent(Event(QueuedToolEventType.MouseDown, MouseButtons.Left, path[0], 70, LiquifyMode.Push, 1f));
+                    for (int i = 1; i < path.Length; ++i)
+                    {
+                        renderer.AddEvent(Event(QueuedToolEventType.MouseMove, MouseButtons.Left, path[i], 70, LiquifyMode.Push, 1f));
+                    }
+                    renderer.AddEvent(Event(QueuedToolEventType.MouseUp, MouseButtons.Left, path[path.Length - 1], 70, LiquifyMode.Push, 1f));
+
+                    if (!finished.Wait(TimeSpan.FromSeconds(15)))
+                    {
+                        renderer.Abort();
+                        Assert.Fail("the stroke did not finish");
+                    }
+
+                    // only the tiles under the stroke were kept, not the whole mesh
+                    Assert.InRange(history.PendingVectorCount, 1, 400L * 300 - 1);
+
+                    history.AddHistoryItem(mesh, renderer.PopTotalInvalidRect());
+                    renderer.Dispose();
+
+                    Assert.NotNull(TestHelpers.FirstDifference(before, mesh));
+
+                    history.StepBack(mesh);
+                    Assert.Null(TestHelpers.FirstDifference(before, mesh));
+                }
+            }
+        }
+
+        [Fact]
+        public void A_stroke_stops_where_it_is_told_the_mesh_cannot_be_saved()
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(400, 200))
+            using (ManualResetEventSlim finished = new ManualResetEventSlim())
+            {
+                LiquifyRenderer renderer = new LiquifyRenderer(mesh);
+                renderer.MouseUp += (s, e) => finished.Set();
+
+                // allowed on the left half of the mesh only
+                int refused = 0;
+                renderer.BeforeMeshChange = rect =>
+                {
+                    if (rect.Right <= 200)
+                    {
+                        return true;
+                    }
+                    ++refused;
+                    return false;
+                };
+
+                renderer.AddEvent(Event(QueuedToolEventType.MouseDown, MouseButtons.Left, new Point(40, 100), 40, LiquifyMode.Push, 1f));
+                foreach (int x in new[] { 100, 160, 220, 280, 340 })
+                {
+                    renderer.AddEvent(Event(QueuedToolEventType.MouseMove, MouseButtons.Left, new Point(x, 100), 40, LiquifyMode.Push, 1f));
+                }
+                renderer.AddEvent(Event(QueuedToolEventType.MouseUp, MouseButtons.Left, new Point(340, 100), 40, LiquifyMode.Push, 1f));
+
+                if (!finished.Wait(TimeSpan.FromSeconds(15)))
+                {
+                    renderer.Abort();
+                    Assert.Fail("the stroke did not finish");
+                }
+                renderer.Dispose();
+
+                // it drew up to the line, was refused once, and did nothing after that
+                List<Point> changed = ChangedVectors(mesh);
+                Assert.NotEmpty(changed);
+                Assert.All(changed, p => Assert.True(p.X < 200, "changed at " + p));
+                Assert.Equal(1, refused);
+            }
+        }
+
+        [Fact]
         public void Pressure_can_change_along_a_stroke_as_it_does_with_a_pen()
         {
             double firm = PushedAmount(1f, 1f);

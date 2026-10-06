@@ -18,6 +18,16 @@ namespace pyrochild.effects.liquify
         DisplacementMesh buffer;
         float remainingSpace;
 
+        /// <summary>
+        /// Called on the render thread with each area of the mesh just before it is written to, so
+        /// that undo can keep what was there. If it returns false the area is left alone and the
+        /// rest of the stroke is ignored: nothing is ever written that couldn't be undone.
+        /// </summary>
+        public Func<Rectangle, bool> BeforeMeshChange { get; set; }
+
+        // set when BeforeMeshChange refused; the stroke then does nothing more until it ends
+        private bool strokeStopped;
+
         public LiquifyRenderer(DisplacementMesh mesh)
             : base(mesh)
         {
@@ -67,6 +77,7 @@ namespace pyrochild.effects.liquify
                 }
 
                 // size, density and mode are fixed for the whole stroke; pressure follows a pen
+                strokeStopped = false;
                 strokesize = e.Size;
                 radius = strokesize / 2;
                 spacing = Math.Max(1, radius / 4);
@@ -134,7 +145,7 @@ namespace pyrochild.effects.liquify
         {
             LiquifyEventArgs e = args as LiquifyEventArgs;
 
-            if (e.Button != MouseButtons.Left || buffer == null)
+            if (e.Button != MouseButtons.Left || buffer == null || strokeStopped)
             {
                 // not in a stroke: nothing changes, so only keep track of where the next one starts
                 lastmouse = e.Location;
@@ -165,6 +176,13 @@ namespace pyrochild.effects.liquify
 
                 // build the brush area in an off-mesh buffer
                 DisplacementMesh.ForEachRow(clippedRect, y => BuildRow(y, clippedRect, dstRect, u));
+
+                Func<Rectangle, bool> beforeChange = BeforeMeshChange;
+                if (beforeChange != null && clippedRect.Width > 0 && clippedRect.Height > 0 && !beforeChange(clippedRect))
+                {
+                    strokeStopped = true;
+                    break;
+                }
 
                 //copy the buffer onto the mesh
                 DisplacementMesh.ForEachRow(clippedRect, y => CopyRow(y, clippedRect, dstRect));

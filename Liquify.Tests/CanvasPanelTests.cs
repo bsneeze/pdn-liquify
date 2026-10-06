@@ -455,6 +455,31 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void The_owner_can_end_a_drag_without_waiting_for_the_button()
+        {
+            WithCanvas(1000, 800, canvas =>
+            {
+                int downs = 0, ups = 0;
+                canvas.CanvasMouseDown += (s, e) => ++downs;
+                canvas.CanvasMouseUp += (s, e) => ++ups;
+
+                SendMessage(canvas.Handle, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, Position(200, 200));
+                SendMessage(canvas.Handle, WM_MOUSEMOVE, (IntPtr)MK_LBUTTON, Position(220, 210));
+                Assert.Equal(1, downs);
+                Assert.Equal(0, ups);
+
+                canvas.EndMouseDrag();
+                Pump(200);
+                Assert.Equal(1, ups);
+
+                // with nothing being dragged it does nothing
+                canvas.EndMouseDrag();
+                Pump(200);
+                Assert.Equal(1, ups);
+            });
+        }
+
+        [Fact]
         public void The_background_choices_can_be_put_on_a_menu_of_the_owners()
         {
             WithCanvas(PartlyTransparentSurface, canvas =>

@@ -66,6 +66,22 @@ namespace pyrochild.effects.liquify
         }
 
         /// <summary>
+        /// For trying out what happens when the disk can't be written to (full, say): while set,
+        /// every write made from this thread fails the way a real one would, without needing a
+        /// full disk. It is per thread so that one test can't trip up another.
+        /// </summary>
+        [ThreadStatic]
+        internal static bool TestFailWritesOnThisThread;
+
+        private static void FailIfTesting()
+        {
+            if (TestFailWritesOnThisThread)
+            {
+                throw new IOException("There is not enough space on the disk. (Simulated for testing.)");
+            }
+        }
+
+        /// <summary>
         /// Writes a part of a mesh straight to disk, without making an in-memory copy of it first.
         /// </summary>
         public static DiskBackedSurface FromRect(DisplacementMesh mesh, Rectangle rect)
@@ -80,6 +96,7 @@ namespace pyrochild.effects.liquify
                 using (FileStream fs = new FileStream(ret.backingfile, FileMode.Create))
                 using (DeflateStream ds = new DeflateStream(fs, CompressionLevel.Fastest))
                 {
+                    FailIfTesting();
                     mesh.SaveRaw(ds, rect);
                 }
             }
@@ -137,6 +154,7 @@ namespace pyrochild.effects.liquify
                 using (FileStream fs = new FileStream(backingfile, FileMode.Create))
                 using (DeflateStream ds = new DeflateStream(fs, CompressionLevel.Fastest))
                 {
+                    FailIfTesting();
                     surface.SaveRaw(ds);
                 }
                 written = true;

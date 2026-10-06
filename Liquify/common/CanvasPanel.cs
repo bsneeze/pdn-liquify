@@ -1564,6 +1564,19 @@ namespace pyrochild.effects.common
             OnCanvasMouseUp(button, location.X - canvasLocation.X, location.Y - canvasLocation.Y);
         }
 
+        /// <summary>
+        /// Ends the drag in progress as if the button had been released, for an owner that can't
+        /// carry on with it. CanvasMouseUp follows shortly. The button's real release, when it
+        /// comes, is reported as another one, with no drag in between.
+        /// </summary>
+        public void EndMouseDrag()
+        {
+            if (Capture)
+            {
+                Capture = false; // handled like any other loss of capture, below
+            }
+        }
+
         // Losing the mouse capture mid-drag (Alt+Tab, a menu opening) means the release will never
         // arrive here, so treat it as one.
         protected override void OnMouseCaptureChanged(EventArgs e)

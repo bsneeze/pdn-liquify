@@ -43,6 +43,9 @@ namespace pyrochild.effects.liquify
         // The render thread owns the mesh for that time, so undo, redo, load and save have to wait.
         private bool strokePending;
 
+        // set on the render thread when undo couldn't keep what a stroke was about to overwrite
+        private volatile bool strokeRanOutOfMemory;
+
         // The controls that can't be used during a stroke only look disabled once it has gone on
         // for a moment; greying them out and back for every short stroke reads as flicker.
         private bool controlsLocked;
@@ -331,6 +334,33 @@ namespace pyrochild.effects.liquify
         private void InitializeRenderer()
         {
             renderer = new LiquifyRenderer(mesh);
+            renderer.BeforeMeshChange = rect =>
+            {
+                if (historystack.BeforeChange(mesh, rect))
+                {
+                    return true;
+                }
+
+                // The renderer now stops the stroke. End it on this side too, straight away and
+                // not when the button is let go; the one message about it comes when it has ended
+                // and it is known whether what it did could be recorded.
+                strokeRanOutOfMemory = true;
+                try
+                {
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        if (!closing)
+                        {
+                            canvas.EndMouseDrag();
+                        }
+                    }));
+                }
+                catch (InvalidOperationException)
+                {
+                    // the window is already gone
+                }
+                return false;
+            };
 
             renderer.Invalidated += new InvalidateEventHandler(renderer_Invalidated);
             renderer.MouseUp += new QueuedToolEventHandler(renderer_MouseUp);
@@ -579,10 +609,46 @@ namespace pyrochild.effects.liquify
                 return;
             }
 
+            // if it can't be made undoable it isn't done, or is put back by AddHistoryItem
+            if (!historystack.BeforeChange(mesh, mesh.Bounds))
+            {
+                ConfirmDialog.Notify(this, this.Text, NotUndoableMessage(), SystemIcons.Warning);
+                return;
+            }
+
             change();
-            historystack.AddHistoryItem(mesh, mesh.Bounds);
+            bool recorded = historystack.AddHistoryItem(mesh, mesh.Bounds);
             UpdateHistoryButtons();
             RenderWholePreview();
+
+            if (!recorded)
+            {
+                ConfirmDialog.Notify(this, this.Text, NotUndoableMessage(), SystemIcons.Warning);
+            }
+        }
+
+        // What the user can do about it, for the end of a message about running out of memory or
+        // disk space. It names the one that ran out, and the drive when it is the disk.
+        private static string WhatToDo(bool memory, bool disk)
+        {
+            // undo data goes to the temporary files folder
+            string drive = Path.GetPathRoot(Path.GetTempPath());
+            string where = string.IsNullOrEmpty(drive) ? "the disk" : "drive " + drive.TrimEnd('\\');
+
+            string action =
+                memory && disk ? "Close other programs to free up memory, and free up space on " + where + "," :
+                disk ? "Free up space on " + where :
+                "Close other programs to free up memory";
+
+            return "\n\n" + action + " before carrying on. Your earlier work is safe: OK in the Liquify window applies it to the layer.";
+        }
+
+        // for a whole-mesh change that history just refused or put back
+        private string NotUndoableMessage()
+        {
+            bool disk = historystack.LastFailure == HistoryFailure.Disk;
+            return "That couldn't be done: there isn't enough " + (disk ? "disk space" : "memory") + " to keep it undoable. Nothing was changed."
+                + WhatToDo(!disk, disk);
         }
 
         // Space is the pan key (see CanvasPanel), so don't let it press whichever button has focus.
@@ -668,8 +734,45 @@ namespace pyrochild.effects.liquify
                     {
                         if (!closing)
                         {
-                            historystack.AddHistoryItem(mesh, renderer.PopTotalInvalidRect());
+                            Rectangle strokeRect = renderer.PopTotalInvalidRect();
+                            bool recorded = historystack.AddHistoryItem(mesh, strokeRect);
+
+                            if (!recorded)
+                            {
+                                // the stroke has been taken back out of the mesh
+                                RenderPreview(Rectangle.Intersect(strokeRect, source.Bounds));
+                                canvas.InvalidateCanvas();
+                            }
+
                             SetStrokePending(false);
+
+                            bool stopped = strokeRanOutOfMemory;
+                            strokeRanOutOfMemory = false;
+
+                            if (stopped || !recorded)
+                            {
+                                // one message, whatever went wrong
+                                // a stroke only ever stops for want of memory; recording it can fail on either
+                                bool disk = !recorded && historystack.LastFailure == HistoryFailure.Disk;
+                                bool memory = stopped || (!recorded && !disk);
+
+                                string message =
+                                    recorded ? "There wasn't enough memory to continue that stroke, so it was stopped. What it had done so far can be undone." :
+                                    stopped && disk ? "There wasn't enough memory to continue that stroke, and not enough disk space to record what it had done for undo, so it has been undone." :
+                                    stopped ? "There wasn't enough memory to continue that stroke, or to record what it had done for undo, so it has been undone." :
+                                    disk ? "There wasn't enough disk space to record that stroke for undo, so it has been undone." :
+                                    "There wasn't enough memory to record that stroke for undo, so it has been undone.";
+                                message += WhatToDo(memory, disk);
+
+                                // after this returns, so the render thread isn't kept waiting on a dialog
+                                this.BeginInvoke(new Action(() =>
+                                {
+                                    if (!closing)
+                                    {
+                                        ConfirmDialog.Notify(this, this.Text, message, SystemIcons.Warning);
+                                    }
+                                }));
+                            }
                         }
                     }
                     finally
@@ -1529,17 +1632,31 @@ namespace pyrochild.effects.liquify
             {
                 try
                 {
-                    FileStream fs = new FileStream(ofd.FileName, FileMode.Open);
-                    mesh.Load(fs);
+                    if (!historystack.BeforeChange(mesh, mesh.Bounds))
+                    {
+                        ConfirmDialog.Notify(this, this.Text, NotUndoableMessage(), SystemIcons.Warning);
+                        return;
+                    }
+
+                    using (FileStream fs = new FileStream(ofd.FileName, FileMode.Open, FileAccess.Read))
+                    {
+                        mesh.Load(fs);
+                    }
+
+                    // a loaded mesh is an edit like any other, so it can be undone
+                    bool recorded = historystack.AddHistoryItem(mesh, mesh.Bounds);
+                    UpdateHistoryButtons();
                     RenderPreview(surface.Bounds);
                     canvas.InvalidateCanvas();
 
-                    // a loaded mesh is an edit like any other, so it can be undone
-                    historystack.AddHistoryItem(mesh, mesh.Bounds);
-                    UpdateHistoryButtons();
+                    if (!recorded)
+                    {
+                        ConfirmDialog.Notify(this, this.Text, NotUndoableMessage(), SystemIcons.Warning);
+                    }
                 }
                 catch (Exception exception)
                 {
+                    historystack.CancelChange();
                     MessageBox.Show(this,
                         "Error loading mesh from file:\n\n" + exception.ToString(),
                         "Error loading mesh file",
