@@ -33,6 +33,7 @@ The buttons under the tools reset all distortion, thaw everything, invert the fr
 
 - **Size** is the brush diameter in pixels. `[` and `]` change it by 1, and `Ctrl+[` and `Ctrl+]` by 5.
 - **Pressure** is how strongly the brush acts.
+- **Pen tablets**: pressing harder makes the brush act more strongly, up to the Pressure setting. The eraser end undoes the distortion (Reconstruct), or thaws when the Freeze tool is selected.
 - **Density** is how much of the brush acts at full strength. Low fades out from the center; high is even to the edge. The fainter inner ring on the brush shows where it is down to half strength.
 
 ### Viewing

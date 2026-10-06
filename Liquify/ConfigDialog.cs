@@ -1378,6 +1378,23 @@ namespace pyrochild.effects.liquify
             }
         }
 
+        // The eraser end of a pen takes away what the current tool puts down: it thaws when the
+        // tool is Freeze (and freezes when it is Thaw), and otherwise undoes the distortion.
+        private LiquifyMode ModeFor(CanvasMouseEventArgs e)
+        {
+            if (!e.Eraser)
+            {
+                return mode;
+            }
+
+            switch (mode)
+            {
+                case LiquifyMode.Freeze: return LiquifyMode.Thaw;
+                case LiquifyMode.Thaw: return LiquifyMode.Freeze;
+                default: return LiquifyMode.Reconstruct;
+            }
+        }
+
         private void canvas_CanvasMouseHold(object sender, CanvasMouseEventArgs e)
         {
             renderer.AddEvent(
@@ -1387,9 +1404,9 @@ namespace pyrochild.effects.liquify
                     (int)e.X,
                     (int)e.Y,
                     BrushSize,
-                    Pressure,
+                    Pressure * e.Pressure, // pen pressure, 1 for a mouse
                     Density,
-                    mode));
+                    ModeFor(e)));
         }
 
         private void canvas_CanvasMouseDown(object sender, CanvasMouseEventArgs e)
@@ -1410,9 +1427,9 @@ namespace pyrochild.effects.liquify
                     (int)e.X,
                     (int)e.Y,
                     BrushSize,
-                    Pressure,
+                    Pressure * e.Pressure, // pen pressure, 1 for a mouse
                     Density,
-                    mode));
+                    ModeFor(e)));
         }
 
         private void canvas_CanvasMouseMove(object sender, CanvasMouseEventArgs e)
@@ -1424,9 +1441,9 @@ namespace pyrochild.effects.liquify
                     (int)e.X,
                     (int)e.Y,
                     BrushSize,
-                    Pressure,
+                    Pressure * e.Pressure, // pen pressure, 1 for a mouse
                     Density,
-                    mode));
+                    ModeFor(e)));
         }
 
         private void canvas_CanvasMouseUp(object sender, CanvasMouseEventArgs e)
@@ -1438,9 +1455,9 @@ namespace pyrochild.effects.liquify
                     (int)e.X,
                     (int)e.Y,
                     BrushSize,
-                    Pressure,
+                    Pressure * e.Pressure, // pen pressure, 1 for a mouse
                     Density,
-                    mode));
+                    ModeFor(e)));
         }
 
 

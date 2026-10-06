@@ -98,6 +98,53 @@ namespace pyrochild.effects.liquify.tests
             }
         }
 
+        // total displacement left by a push stroke whose moves carry the given pressures
+        private static double PushedAmount(float downPressure, float movePressure)
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(200, 120))
+            using (ManualResetEventSlim finished = new ManualResetEventSlim())
+            {
+                LiquifyRenderer renderer = new LiquifyRenderer(mesh);
+                renderer.MouseUp += (s, e) => finished.Set();
+
+                renderer.AddEvent(Event(QueuedToolEventType.MouseDown, MouseButtons.Left, new Point(40, 60), 40, LiquifyMode.Push, downPressure));
+                foreach (int x in new[] { 70, 100, 130, 160 })
+                {
+                    renderer.AddEvent(Event(QueuedToolEventType.MouseMove, MouseButtons.Left, new Point(x, 60), 40, LiquifyMode.Push, movePressure));
+                }
+                renderer.AddEvent(Event(QueuedToolEventType.MouseUp, MouseButtons.Left, new Point(160, 60), 40, LiquifyMode.Push, movePressure));
+
+                if (!finished.Wait(TimeSpan.FromSeconds(15)))
+                {
+                    renderer.Abort();
+                    Assert.Fail("the stroke did not finish");
+                }
+                renderer.Dispose();
+
+                double total = 0;
+                for (int y = 0; y < mesh.Height; ++y)
+                {
+                    for (int x = 0; x < mesh.Width; ++x)
+                    {
+                        total += Math.Abs(mesh[x, y].X) + Math.Abs(mesh[x, y].Y);
+                    }
+                }
+                return total;
+            }
+        }
+
+        [Fact]
+        public void Pressure_can_change_along_a_stroke_as_it_does_with_a_pen()
+        {
+            double firm = PushedAmount(1f, 1f);
+            double easingOff = PushedAmount(1f, 0.2f);
+            double light = PushedAmount(0.2f, 0.2f);
+
+            // the pressure of each move counts, not just the one the stroke started with
+            Assert.True(easingOff < firm * 0.5, "easing off pushed " + easingOff + " against " + firm);
+            Assert.InRange(easingOff, light * 0.9, light * 1.6);
+        }
+
         [Fact]
         public void The_half_strength_ring_moves_out_as_density_rises_and_is_gone_at_full_density()
         {

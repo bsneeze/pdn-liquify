@@ -373,8 +373,99 @@ namespace pyrochild.effects.common
         private const int WM_MOUSEWHEEL = 0x020A;
         private const int WM_MOUSEHWHEEL = 0x020E;
 
+        // Pen pressure. A pen sends pointer messages, which Windows then turns into the mouse
+        // messages the rest of this control works from. The pressure is only in the pointer
+        // messages, so it is noted as they go by and attached to the canvas mouse events of a
+        // stroke that the pen started.
+        private const int WM_POINTERUPDATE = 0x0245;
+        private const int WM_POINTERDOWN = 0x0246;
+        private const int WM_POINTERUP = 0x0247;
+        private const int WM_POINTERLEAVE = 0x024A;
+        private const int PT_PEN = 3;
+        private const int POINTER_FLAG_INCONTACT = 0x0004;
+        private const int PEN_MASK_PRESSURE = 0x0001;
+        private const int PEN_FLAG_INVERTED = 0x0002; // the eraser end is the one near the screen
+        private const int PEN_FLAG_ERASER = 0x0004;   // and it is touching
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct POINTER_INFO
+        {
+            public int pointerType;
+            public uint pointerId;
+            public uint frameId;
+            public int pointerFlags;
+            public IntPtr sourceDevice;
+            public IntPtr hwndTarget;
+            public Point ptPixelLocation;
+            public Point ptHimetricLocation;
+            public Point ptPixelLocationRaw;
+            public Point ptHimetricLocationRaw;
+            public uint dwTime;
+            public uint historyCount;
+            public int inputData;
+            public uint dwKeyStates;
+            public ulong performanceCount;
+            public int buttonChangeType;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct POINTER_PEN_INFO
+        {
+            public POINTER_INFO pointerInfo;
+            public int penFlags;
+            public int penMask;
+            public uint pressure; // 0 to 1024
+            public uint rotation;
+            public int tiltX;
+            public int tiltY;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetPointerType(uint pointerId, out int pointerType);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetPointerPenInfo(uint pointerId, out POINTER_PEN_INFO penInfo);
+
+        private bool penInContact;
+        private float penPressure = 1f;
+        private bool strokeFromPen;
+        private bool penEraser;
+        private bool strokeEraser;
+
+        private void TrackPen(ref Message m)
+        {
+            uint pointerId = (uint)((long)m.WParam & 0xFFFF);
+            int pointerType;
+            if (!GetPointerType(pointerId, out pointerType) || pointerType != PT_PEN)
+            {
+                return;
+            }
+
+            POINTER_PEN_INFO info;
+            if (m.Msg == WM_POINTERUP || m.Msg == WM_POINTERLEAVE || !GetPointerPenInfo(pointerId, out info))
+            {
+                penInContact = false;
+                return;
+            }
+
+            penInContact = (info.pointerInfo.pointerFlags & POINTER_FLAG_INCONTACT) != 0;
+            penEraser = (info.penFlags & (PEN_FLAG_INVERTED | PEN_FLAG_ERASER)) != 0;
+            penPressure = (info.penMask & PEN_MASK_PRESSURE) != 0 ? Math.Min(1f, info.pressure / 1024f) : 1f;
+        }
+
+        // 1 unless a pen is drawing
+        private float StrokePressure
+        {
+            get { return strokeFromPen ? penPressure : 1f; }
+        }
+
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == WM_POINTERUPDATE || m.Msg == WM_POINTERDOWN || m.Msg == WM_POINTERUP || m.Msg == WM_POINTERLEAVE)
+            {
+                // only noted: the message carries on, and comes back as mouse messages
+                TrackPen(ref m);
+            }
 
             if (m.Msg == WM_MOUSEHWHEEL)
             {
@@ -1487,9 +1578,15 @@ namespace pyrochild.effects.common
 
         private void CanvasPanel_MouseDown(object sender, MouseEventArgs e)
         {
+            // Pen drivers differ in which mouse button they send for the eraser end. Whichever it is,
+            // an eraser stroke is a stroke: it is reported as the left button with Eraser set, and
+            // doesn't pan or open the menu.
+            bool eraser = penInContact && penEraser;
+            MouseButtons button = eraser ? MouseButtons.Left : e.Button;
+
             if (releasePending)
             {
-                if (e.Button == releaseButton)
+                if (button == releaseButton)
                 {
                     // pressed again before the release was acted on: carry on with the same drag
                     releasePending = false;
@@ -1500,15 +1597,16 @@ namespace pyrochild.effects.common
                 FlushRelease();
             }
 
-            if (BeginPan(e.Button))
+            if (BeginPan(button))
                 return;
 
             Point location = CanvasLocation;
 
-            if (e.Button == MouseButtons.Right)
+            if (button == MouseButtons.Right)
                 ShowContextMenu(e.Location, CanvasBounds.Contains(e.Location));
 
-            OnCanvasMouseDown(e.Button, e.X - location.X, e.Y - location.Y);
+            strokeEraser = eraser;
+            OnCanvasMouseDown(button, e.X - location.X, e.Y - location.Y);
         }
 
         // Right-clicking the canvas changes what shows through the image's transparent parts;
@@ -1782,7 +1880,8 @@ namespace pyrochild.effects.common
 
         private void CanvasPanel_MouseUp(object sender, MouseEventArgs e)
         {
-            DeferRelease(e.Button, e.Location);
+            // an eraser stroke was started as the left button, so that is the one it ends with
+            DeferRelease(strokeEraser ? MouseButtons.Left : e.Button, e.Location);
         }
 
         private void CanvasPanel_MouseLeave(object sender, System.EventArgs e)
@@ -1873,8 +1972,9 @@ namespace pyrochild.effects.common
         {
             holdTimer.Enabled = true;
             buttons = button;
+            strokeFromPen = penInContact;
             if (CanvasMouseDown != null)
-                CanvasMouseDown(this, new CanvasMouseEventArgs(button, x / scale, y / scale));
+                CanvasMouseDown(this, new CanvasMouseEventArgs(button, x / scale, y / scale, StrokePressure, strokeEraser));
         }
 
         public event EventHandler<CanvasMouseEventArgs> CanvasMouseMove;
@@ -1884,7 +1984,7 @@ namespace pyrochild.effects.common
             canvasmouselocation = new PointF(x, y);
             InvalidateBrush();
             if (CanvasMouseMove != null)
-                CanvasMouseMove(this, new CanvasMouseEventArgs(button, x / scale, y / scale));
+                CanvasMouseMove(this, new CanvasMouseEventArgs(button, x / scale, y / scale, StrokePressure, strokeEraser));
         }
 
         public event EventHandler<CanvasMouseEventArgs> CanvasMouseUp;
@@ -1893,14 +1993,16 @@ namespace pyrochild.effects.common
             holdTimer.Enabled = false;
             buttons = MouseButtons.None;
             if (CanvasMouseUp != null)
-                CanvasMouseUp(this, new CanvasMouseEventArgs(button, x / scale, y / scale));
+                CanvasMouseUp(this, new CanvasMouseEventArgs(button, x / scale, y / scale, StrokePressure, strokeEraser));
+            strokeFromPen = false;
+            strokeEraser = false;
         }
 
         public event EventHandler<CanvasMouseEventArgs> CanvasMouseHold;
         private void OnCanvasMouseHold(MouseButtons button, float x, float y)
         {
             if (CanvasMouseHold != null)
-                CanvasMouseHold(this, new CanvasMouseEventArgs(button, x / scale, y / scale));
+                CanvasMouseHold(this, new CanvasMouseEventArgs(button, x / scale, y / scale, StrokePressure, strokeEraser));
         }
 
         public event EventHandler ZoomFactorChanged;

@@ -66,7 +66,7 @@ namespace pyrochild.effects.liquify
                     buffer.Dispose();
                 }
 
-                // size, pressure, density and mode are fixed for the whole stroke
+                // size, density and mode are fixed for the whole stroke; pressure follows a pen
                 strokesize = e.Size;
                 radius = strokesize / 2;
                 spacing = Math.Max(1, radius / 4);
@@ -140,6 +140,8 @@ namespace pyrochild.effects.liquify
                 lastmouse = e.Location;
                 return;
             }
+
+            pressure = e.Pressure;
 
             Size brushsize = new Size(strokesize, strokesize);
 
