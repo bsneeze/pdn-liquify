@@ -14,9 +14,10 @@ namespace pyrochild.effects.common
         /// Returns true if the confirm button was chosen. Enter chooses it; Esc and the close box
         /// choose the other one.
         /// </summary>
-        public static bool Show(IWin32Window owner, string caption, string question, string confirmText, string cancelText)
+        /// <param name="icon">optional, shown beside the question: SystemIcons.Warning, say</param>
+        public static bool Show(IWin32Window owner, string caption, string question, string confirmText, string cancelText, Icon icon = null)
         {
-            using (QuestionForm form = new QuestionForm(caption, question, confirmText, cancelText, null))
+            using (QuestionForm form = new QuestionForm(caption, question, confirmText, cancelText, icon))
             {
                 return form.ShowDialog(owner) == DialogResult.OK;
             }

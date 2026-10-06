@@ -848,7 +848,7 @@ namespace pyrochild.effects.liquify
                 else if (historystack != null && historystack.CanStepBack)
                 {
                     // Esc and the close box end up here too, and would otherwise throw the work away
-                    if (!ConfirmDialog.Show(this, this.Text, "Discard the changes you have made?", "Discard", "Keep editing"))
+                    if (!ConfirmDialog.Show(this, this.Text, "Discard the changes you have made?", "Discard", "Keep editing", SystemIcons.Warning))
                     {
                         e.Cancel = true;
                     }
