@@ -1976,7 +1976,13 @@ namespace pyrochild.effects.common
         {
             using (ColorDialog cd = new ColorDialog(alpha))
             {
-                cd.Color = ColorBgra.FromColor(current);
+                // the wheel doesn't change alpha, so a fully transparent color would stay invisible
+                ColorBgra start = ColorBgra.FromColor(current);
+                if (start.A == 0)
+                {
+                    start.A = 255;
+                }
+                cd.Color = start;
 
                 // from here on, so that merely opening the picker changes nothing
                 cd.ColorChanged += (s, e) => preview(cd.Color.ToColor());

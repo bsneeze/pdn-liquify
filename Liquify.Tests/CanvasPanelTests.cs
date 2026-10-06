@@ -634,6 +634,25 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void Picking_on_the_color_wheel_keeps_how_see_through_the_color_is()
+        {
+            TestHelpers.RunSta(() =>
+            {
+                using (ColorWheel wheel = new ColorWheel())
+                {
+                    wheel.Color = ColorBgra.FromBgra(10, 20, 200, 90);
+
+                    PaintDotNet.Imaging.ColorHsv96Float hsv = wheel.HsvColor;
+                    hsv.Hue = (hsv.Hue + 120) % 360;
+                    wheel.HsvColor = hsv;
+
+                    Assert.Equal(90, wheel.Color.A);
+                    Assert.False(wheel.Color.R == 200 && wheel.Color.B == 10, "the hue did not change");
+                }
+            });
+        }
+
+        [Fact]
         public void The_owner_can_end_a_drag_without_waiting_for_the_button()
         {
             WithCanvas(1000, 800, canvas =>

@@ -59,11 +59,19 @@ namespace pyrochild.effects.common
                 if (hsvcolor != value)
                 {
                     hsvcolor = value;
-                    color = hsvcolor.ToColorBgra();
+                    color = WithAlpha(hsvcolor);
                     OnColorChanged();
                     Invalidate();
                 }
             }
+        }
+
+        // the wheel only picks hue, saturation and value, so alpha is kept
+        private ColorBgra WithAlpha(ColorHsv96Float hsv)
+        {
+            ColorBgra result = hsv.ToColorBgra();
+            result.A = color.A;
+            return result;
         }
 
         public ColorWheel()
@@ -387,7 +395,7 @@ namespace pyrochild.effects.common
             }
 
             hsvcolor.Hue = (int)(theta * radtodeg);
-            color = hsvcolor.ToColorBgra();
+            color = WithAlpha(hsvcolor);
             OnColorChanged();
         }
 
@@ -408,7 +416,7 @@ namespace pyrochild.effects.common
 
             hsvcolor.Saturation = sat;
             hsvcolor.Value = val;
-            color = hsvcolor.ToColorBgra();
+            color = WithAlpha(hsvcolor);
             OnColorChanged();
         }
 

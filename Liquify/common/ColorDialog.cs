@@ -51,6 +51,7 @@ namespace pyrochild.effects.common
                 try
                 {
                     ColorBgra c = ColorBgra.FromOpaqueInt32(int.Parse(hex.Text, System.Globalization.NumberStyles.HexNumber));
+                    c.A = wheel.Color.A; // the hex box has no alpha digits
                     ColorHsv96Float h = c.ToHsvColor();
                     wheel.Color = c;
                     SetRgbSliders(c);
