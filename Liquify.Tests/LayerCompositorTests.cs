@@ -143,24 +143,14 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
-        public void The_background_choice_travels_with_the_other_dialog_settings()
+        public void The_dialog_starts_with_the_checkerboard_and_nothing_extra_shown()
         {
-            ConfigToken token = new ConfigToken();
-            Assert.Equal(CanvasBackground.Color, token.background);
-            Assert.Equal(0, token.backgroundColor);
-
-            token.background = CanvasBackground.AllLayersBeneath;
-            token.backgroundColor = unchecked((int)0xFF102030);
-            token.showLayersAbove = true;
-            token.surroundColor = unchecked((int)0xFF405060);
-            token.meshGrid = 2;
-
-            ConfigToken copy = (ConfigToken)token.Clone();
-            Assert.True(copy.showLayersAbove);
-            Assert.Equal(unchecked((int)0xFF405060), copy.surroundColor);
-            Assert.Equal(2, copy.meshGrid);
-            Assert.Equal(CanvasBackground.AllLayersBeneath, copy.background);
-            Assert.Equal(unchecked((int)0xFF102030), copy.backgroundColor);
+            DialogSettings settings = new DialogSettings();
+            Assert.Equal(CanvasBackground.Color, settings.background);
+            Assert.Equal(0, settings.backgroundColor);
+            Assert.False(settings.showLayersAbove);
+            Assert.Equal(0, settings.surroundColor);
+            Assert.Equal(0, settings.meshGrid);
         }
 
         [Fact]

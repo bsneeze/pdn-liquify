@@ -56,7 +56,7 @@ The **View** menu controls what the canvas shows besides the image:
 - **Canvas background** chooses what shows through the layer's transparent parts: a checkerboard, a color, an image from the clipboard, the layer beneath, or all layers beneath.
 - **Around the canvas** sets the color of the area around the image.
 
-The background choices are also on the canvas's right-click menu. The brush settings, the grid, the backgrounds and the layers-above setting are remembered the next time you open Liquify.
+The background choices are also on the canvas's right-click menu. The brush settings, the grid, the backgrounds, the layers-above setting and the window's size and position are remembered the next time you open Liquify, until Paint.NET is closed.
 
 ### Mesh files
 

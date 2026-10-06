@@ -922,8 +922,54 @@ namespace pyrochild.effects.liquify
             }
         }
 
+        // How the dialog was last closed, whichever way that was, for as long as Paint.NET runs.
+        // Not in the token: that is only kept on OK.
+        private static DialogSettings lastSettings = new DialogSettings();
+        private static Rectangle lastBounds; // empty until the dialog has been closed once
+        private static bool lastMaximized;
+
+        private void RememberSettings()
+        {
+            DialogSettings settings = new DialogSettings();
+            settings.pressure = Pressure;
+            settings.density = Density;
+            settings.size = BrushSize;
+            StoreBackground(settings);
+            settings.showLayersAbove = showLayersAbove;
+            settings.surroundColor = canvas.BackColor.ToArgb();
+            settings.meshGrid = meshSmall.Checked ? 1 : meshLarge.Checked ? 2 : 0;
+            lastSettings = settings;
+
+            lastMaximized = this.WindowState == FormWindowState.Maximized;
+            lastBounds = this.WindowState == FormWindowState.Normal ? this.Bounds : this.RestoreBounds;
+        }
+
+        // Where the dialog was last time if that is still on a screen, otherwise over Paint.NET's window.
+        private void PlaceWindow()
+        {
+            bool onScreen = false;
+            foreach (Screen screen in Screen.AllScreens)
+            {
+                Rectangle visible = Rectangle.Intersect(screen.WorkingArea, lastBounds);
+                onScreen |= visible.Width >= 100 && visible.Height >= 100;
+            }
+
+            if (onScreen)
+            {
+                this.Bounds = lastBounds;
+                this.WindowState = lastMaximized ? FormWindowState.Maximized : FormWindowState.Normal;
+                return;
+            }
+
+            int top = (int)Math.Round(30 * DpiScale);
+            this.DesktopLocation = Owner.PointToScreen(new Point(0, top));
+            this.Size = new Size(Owner.ClientSize.Width, Owner.ClientSize.Height - top);
+            this.WindowState = Owner.WindowState;
+        }
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            RememberSettings();
             StopRenderer();
             base.OnFormClosed(e);
         }
@@ -1121,9 +1167,7 @@ namespace pyrochild.effects.liquify
             fitZoomPending = true;
             canvas.ZoomToFit();
 
-            this.DesktopLocation = Owner.PointToScreen(new Point(0, 30));
-            this.Size = new Size(Owner.ClientSize.Width, Owner.ClientSize.Height - 30);
-            this.WindowState = Owner.WindowState;
+            PlaceWindow();
         }
 
         // The canvas's "Background" menu can show the layers under the one being edited. A full-size
@@ -1387,7 +1431,7 @@ namespace pyrochild.effects.liquify
             }
         }
 
-        private void StoreBackground(ConfigToken token)
+        private void StoreBackground(DialogSettings token)
         {
             CanvasBackgroundOption active = canvas.ActiveBackgroundOption;
 
@@ -1701,34 +1745,31 @@ namespace pyrochild.effects.liquify
         }
 
 
+        // The token holds nothing the dialog shows: every session starts from an empty mesh. This
+        // is where the dialog is set up, from the settings it was last closed with.
         protected override void OnUpdateDialogFromToken(ConfigToken token)
         {
-            Pressure = token.pressure;
-            Density = token.density;
-            BrushSize = token.size;
-            ApplyBackground(token.background, token.backgroundColor);
-            SetLayersAbove(token.showLayersAbove);
+            DialogSettings settings = lastSettings;
 
-            if (token.surroundColor != 0)
+            Pressure = settings.pressure;
+            Density = settings.density;
+            BrushSize = settings.size;
+            ApplyBackground(settings.background, settings.backgroundColor);
+            SetLayersAbove(settings.showLayersAbove);
+
+            if (settings.surroundColor != 0)
             {
-                canvas.BackColor = Color.FromArgb(token.surroundColor);
+                canvas.BackColor = Color.FromArgb(settings.surroundColor);
             }
 
-            meshSmall.Checked = token.meshGrid == 1;
-            meshLarge.Checked = token.meshGrid == 2;
+            meshSmall.Checked = settings.meshGrid == 1;
+            meshLarge.Checked = settings.meshGrid == 2;
             UpdateGrid();
         }
 
         protected override void OnUpdateTokenFromDialog(ConfigToken token)
         {
-            token.pressure = Pressure;
-            token.density = Density;
-            token.size = BrushSize;
             token.mesh = mesh;
-            StoreBackground(token);
-            token.showLayersAbove = showLayersAbove;
-            token.surroundColor = canvas.BackColor.ToArgb();
-            token.meshGrid = meshSmall.Checked ? 1 : meshLarge.Checked ? 2 : 0;
         }
 
         private void ok_Click(object sender, EventArgs e)
