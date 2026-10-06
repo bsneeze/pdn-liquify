@@ -61,9 +61,11 @@ namespace pyrochild.effects.common
             }
             set 
             {
-                if (slidervalue != value) 
+                // clamp first, so dragging past an end doesn't raise ValueChanged
+                float clamped = Math.Clamp(value, slidermin, slidermax);
+                if (slidervalue != clamped)
                 {
-                    slidervalue = Math.Clamp(value, slidermin, slidermax);
+                    slidervalue = clamped;
                     OnValueChanged();
                 }
             }

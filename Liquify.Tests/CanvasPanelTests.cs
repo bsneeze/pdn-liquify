@@ -676,6 +676,33 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void A_slider_dragged_past_its_end_reports_the_change_once()
+        {
+            TestHelpers.RunSta(() =>
+            {
+                using (SliderControl slider = new SliderControl())
+                {
+                    int changes = 0;
+                    slider.ValueChanged += (s, e) => ++changes;
+
+                    slider.Value = 1.5f;
+                    Assert.Equal(1f, slider.Value);
+                    Assert.Equal(1, changes);
+
+                    slider.Value = 2f;
+                    slider.Value = 1f;
+                    Assert.Equal(1, changes);
+
+                    slider.Minimum = 0.01f;
+                    slider.Value = -3f;
+                    slider.Value = -4f;
+                    Assert.Equal(0.01f, slider.Value);
+                    Assert.Equal(2, changes);
+                }
+            });
+        }
+
+        [Fact]
         public void Picking_on_the_color_wheel_keeps_how_see_through_the_color_is()
         {
             TestHelpers.RunSta(() =>
