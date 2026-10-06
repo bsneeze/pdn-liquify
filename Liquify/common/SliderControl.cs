@@ -7,6 +7,10 @@
 // .                                                                           //
 /////////////////////////////////////////////////////////////////////////////////
 
+// This file comes from the Paint.NET source code and has been modified for this plugin.
+// Modifications Copyright (C) Zach Walker. The Paint.NET license that the notice above
+// refers to is reproduced in the LICENSE file at the root of this repository.
+
 using System;
 using System.Collections;
 using System.ComponentModel;
@@ -61,9 +65,11 @@ namespace pyrochild.effects.common
             }
             set 
             {
-                if (slidervalue != value) 
+                // clamp first, so dragging past an end doesn't raise ValueChanged
+                float clamped = Math.Clamp(value, slidermin, slidermax);
+                if (slidervalue != clamped)
                 {
-                    slidervalue = Math.Clamp(value, slidermin, slidermax);
+                    slidervalue = clamped;
                     OnValueChanged();
                 }
             }
@@ -143,7 +149,10 @@ namespace pyrochild.effects.common
                 bufferGraphics.FillRectangle(lgb, 0, 0, ClientSize.Width, ClientSize.Height);
             }
 
-            bufferGraphics.FillRectangle(new SolidBrush(this.ForeColor), 0.0f, 0.0f, ClientRectangle.Width * slidervalue, this.ClientRectangle.Height);
+            using (SolidBrush fill = new SolidBrush(this.ForeColor))
+            {
+                bufferGraphics.FillRectangle(fill, 0.0f, 0.0f, ClientRectangle.Width * slidervalue, this.ClientRectangle.Height);
+            }
             using (Pen borderPen = new Pen(hovering ? Color.White : borderColor))
             {
                 bufferGraphics.DrawRectangle(borderPen, 0, 0, this.ClientSize.Width - 1, this.ClientSize.Height - 1);

@@ -10,7 +10,6 @@ namespace pyrochild.effects.liquify
     public sealed class Liquify : BitmapEffect<ConfigToken>
     {
         DisplacementMesh mesh;
-        Surface cachedSource;
 
         public Liquify() : base(StaticName, StaticIcon, StaticSubMenu, BitmapEffectOptions.Create() with { IsConfigurable = true }) { }
 
@@ -70,50 +69,28 @@ namespace pyrochild.effects.liquify
                 return;
             }
 
-            if (cachedSource == null)
+            SizeInt32 docSize = Environment.Document.Size;
+            Size canvasSize = new Size(docSize.Width, docSize.Height);
+
+            if (mesh.Size != canvasSize)
             {
-                SizeInt32 docSize = Environment.Document.Size;
-                Size canvasSize = new Size(docSize.Width, docSize.Height);
-
-                if (mesh.Size != canvasSize)
-                {
-                    mesh = mesh.Resize(canvasSize);
-                }
-
-                cachedSource = new Surface(docSize.Width, docSize.Height);
-                using (IEffectInputBitmap<ColorBgra32> srcBitmap = Environment.GetSourceBitmapBgra32())
-                using (IBitmapLock<ColorBgra32> srcLock = srcBitmap.Lock(new RectInt32(0, 0, docSize.Width, docSize.Height)))
-                {
-                    RegionPtr<ColorBgra32> srcRegion32 = new RegionPtr<ColorBgra32>(srcLock.Buffer, srcLock.Size, srcLock.BufferStride);
-                    RegionPtr<ColorBgra> dstRegion = new RegionPtr<ColorBgra>(cachedSource.GetPointPointer(0, 0), cachedSource.Width, cachedSource.Height, cachedSource.Stride);
-                    srcRegion32.Cast<ColorBgra>().CopyTo(dstRegion);
-                }
+                mesh = mesh.Resize(canvasSize);
             }
 
             RectInt32 bounds = output.Bounds;
             Rectangle canvasRect = new Rectangle(bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
-            using (Surface tempDst = new Surface(cachedSource.Size))
+            // The mesh can pull a pixel from anywhere in the layer, so all of it is locked. Both it and
+            // the output are used in place: ColorBgra32 and ColorBgra are the same four bytes.
+            using (IEffectInputBitmap<ColorBgra32> srcBitmap = Environment.GetSourceBitmapBgra32())
+            using (IBitmapLock<ColorBgra32> srcLock = srcBitmap.Lock(new RectInt32(0, 0, docSize.Width, docSize.Height)))
+            using (IBitmapLock<ColorBgra32> dstLock = output.LockBgra32())
             {
-                mesh.Render(tempDst, cachedSource, canvasRect);
+                BitmapSurface source = new BitmapSurface((ColorBgra*)srcLock.Buffer, docSize.Width, docSize.Height, srcLock.BufferStride);
+                BitmapSurface destination = BitmapSurface.ForRect((ColorBgra*)dstLock.Buffer, canvasRect, dstLock.BufferStride, canvasSize);
 
-                using (IBitmapLock<ColorBgra32> dstLock = output.LockBgra32())
-                {
-                    RegionPtr<ColorBgra32> dstRegion = new RegionPtr<ColorBgra32>(dstLock.Buffer, dstLock.Size, dstLock.BufferStride);
-                    RegionPtr<ColorBgra> srcRegion = new RegionPtr<ColorBgra>(tempDst.GetPointPointer(bounds.X, bounds.Y), bounds.Width, bounds.Height, tempDst.Stride);
-                    srcRegion.Cast<ColorBgra32>().CopyTo(dstRegion);
-                }
+                mesh.RenderSupersampled(destination, source, canvasRect);
             }
-        }
-
-        protected override void OnDispose(bool disposing)
-        {
-            if (disposing)
-            {
-                cachedSource?.Dispose();
-                cachedSource = null;
-            }
-            base.OnDispose(disposing);
         }
     }
 }

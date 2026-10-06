@@ -8,7 +8,7 @@ namespace pyrochild.effects.liquify
     /// dest.Point = source.Point + DisplacementVector
     /// Mask is used for freezing and thawing points in the mesh
     /// </summary>
-    [StructLayout(LayoutKind.Explicit)]
+    [StructLayout(LayoutKind.Explicit, Pack = 1, Size = 9)]
     public struct DisplacementVector
     {
         [FieldOffset(0)]
@@ -32,11 +32,6 @@ namespace pyrochild.effects.liquify
             X = x;
             Y = y;
             Mask = mask;
-        }
-
-        public int SizeOf
-        {
-            get { return 9; }
         }
 
         public static DisplacementVector Zero

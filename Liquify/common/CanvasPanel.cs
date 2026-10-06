@@ -1,20 +1,101 @@
-﻿using PaintDotNet;
+using PaintDotNet;
+using PaintDotNet.Rendering;
 using pyrochild.effects.liquify;
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace pyrochild.effects.common
 {
-    public partial class CanvasPanel : UserControl
+    /// <summary>
+    /// Draws over one row of the canvas after the image has been drawn into it.
+    /// </summary>
+    /// <param name="pixels">the row's pixels, 32-bit BGRA and already opaque, starting at canvasX</param>
+    /// <param name="canvasX">canvas x coordinate of the first pixel (zoomed pixels, not image pixels)</param>
+    /// <param name="canvasY">canvas y coordinate of the row</param>
+    /// <param name="count">number of pixels in the row</param>
+    /// <param name="scale">the zoom factor: canvas pixels per image pixel</param>
+    public delegate void CanvasRowOverlay(IntPtr pixels, int canvasX, int canvasY, int count, float scale);
+
+    /// <summary>
+    /// An entry the owner adds to the canvas's "Background" menu.
+    /// </summary>
+    public sealed class CanvasBackgroundOption
     {
-        private Surface surface;
+        public CanvasBackgroundOption(string name, Func<Surface> getSurface, Func<Image> getPreview = null)
+        {
+            Name = name;
+            GetSurface = getSurface;
+            GetPreview = getPreview;
+            Enabled = true;
+        }
+
+        /// <summary>
+        /// An entry that is listed but can't be picked, so the menu can say why something isn't on offer.
+        /// </summary>
+        public static CanvasBackgroundOption Unavailable(string name)
+        {
+            return new CanvasBackgroundOption(name, null) { Enabled = false };
+        }
+
+        public bool Enabled { get; private set; }
+
+        /// <summary>
+        /// Optional. Called each time the menu opens, for the small picture next to the entry, like
+        /// the color swatches the built-in entries have. The image stays the caller's.
+        /// </summary>
+        public Func<Image> GetPreview { get; private set; }
+
+        /// <summary>The menu text.</summary>
+        public string Name { get; private set; }
+
+        /// <summary>
+        /// Called when the entry is picked. Returns a surface the size of the canvas's own, which
+        /// stays the caller's to dispose.
+        /// </summary>
+        public Func<Surface> GetSurface { get; private set; }
+    }
+
+    /// <summary>
+    /// A picture drawn over the canvas's image, such as a layer that lies in front of the one
+    /// being edited.
+    /// </summary>
+    public sealed class CanvasForegroundLayer
+    {
+        /// <param name="surface">the same size as the canvas's own; it stays the caller's to dispose</param>
+        /// <param name="op">how it is blended onto what is under it; null for a plain overlay</param>
+        public CanvasForegroundLayer(Surface surface, CompositionOp op = null)
+        {
+            Surface = surface;
+            Op = op;
+        }
+
+        public Surface Surface { get; private set; }
+        public CompositionOp Op { get; private set; }
+    }
+
+    /// <summary>
+    /// A scrollable, zoomable view of a Surface with a brush cursor, which raises mouse events in the
+    /// surface's coordinates.
+    /// The image ("the canvas") is drawn straight onto this control, and scrolling is done here too:
+    /// a scroll step just changes ScrollPosition and repaints. ScrollableControl's AutoScroll isn't
+    /// used because it scrolls by copying the window's pixels, which at large window sizes was measured
+    /// to take about twice as long as repainting the whole view.
+    /// </summary>
+    public partial class CanvasPanel : UserControl, IDarkThemeable
+    {
+        private const int canvasMargin = 10;
+
+        private ISurface<ColorBgra> surface;
+        private Size canvasSize; // the image at the current zoom
+        private Color canvasBackColor = Color.Transparent;
+        private Image canvasBackgroundImage;
         private float scale;
         private MouseButtons buttons;
-        private int brushRadius;
         private int brushSize;
-        private PointF canvasmouselocation; //the mouse location relative to the PICTUREBOX
+        private PointF canvasmouselocation; //the mouse location relative to the canvas
         private bool panelhasmouse;
         private bool canvashasmouse;
         private PdnRegion selection;
@@ -23,12 +104,28 @@ namespace pyrochild.effects.common
         private Brush tintbrush;
         private Brush outlinebrush;
         private Brush outerCheckerBrush;
+        private Brush canvasCheckerBrush;
+        private CanvasRowOverlay rowOverlay;
+        private Surface backgroundSurface;
+        private CanvasForegroundLayer[] foregroundLayers;
+        private bool backgroundSurfaceHidden;
+        private bool previewingBackColor; // the color picker is open and showing its color on the canvas
+        private float brushInnerFraction;
+        private CanvasBackgroundOption activeBackgroundOption;
+        private Size menuSwatchSize; // the menu's own image size, before it is widened for the check mark
+        private readonly List<CanvasBackgroundOption> backgroundOptions = new List<CanvasBackgroundOption>();
+        private uint[] scaled; // scratch pixels for DrawComposited
+        private int[] sourceColumns;
 
         public CanvasPanel()
         {
             InitializeComponent();
+
+            // Painting is buffered by RegionPainter. Not DoubleBuffered: that allocates a buffer the size
+            // of the whole panel on every paint.
+            this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
+
             this.ZoomFactor = 1.0f;
-            this.CanvasBackColor = Color.Transparent;
 
             tintbrush = new SolidBrush(Color.FromArgb(63, 0, 0, 0));
             outlinebrush = SystemBrushes.Highlight;
@@ -51,8 +148,505 @@ namespace pyrochild.effects.common
             return bmp;
         }
 
-        // The "Background" menu can make this panel transparent too, so it needs the same checkerboard.
+        private Point scrollOffset; // how far the view is scrolled; never negative
+        private Size viewport;      // the client area; the scrollbars are outside it
+        private bool updatingScrollbars;
+        private bool showHScroll;
+        private bool showVScroll;
+
+        // Designers and owners may still set this; it has to stay off for the reason in the class summary.
+        public override bool AutoScroll
+        {
+            get { return false; }
+            set { }
+        }
+
+        /// <summary>
+        /// How far the view is scrolled from the top left, in pixels. Setting it keeps it in range.
+        /// </summary>
+        public Point ScrollPosition
+        {
+            get
+            {
+                return scrollOffset;
+            }
+            set
+            {
+                Point old = scrollOffset;
+                scrollOffset = value;
+                UpdateScrollbars();
+
+                if (scrollOffset != old)
+                {
+                    this.Invalidate();
+                }
+            }
+        }
+
+        // The scrollbars are the window's own (WS_HSCROLL / WS_VSCROLL), driven directly with
+        // SetScrollInfo. They have to be the standard kind: touchpad drivers that do their own
+        // two-finger scrolling (Synaptics) look for exactly these and send the window WM_HSCROLL and
+        // WM_VSCROLL. With scrollbar child controls instead, such a driver sent nothing at all for a
+        // sideways swipe.
+        private const int SB_HORZ = 0;
+        private const int SB_VERT = 1;
+        private const uint SIF_RANGE = 0x1;
+        private const uint SIF_PAGE = 0x2;
+        private const uint SIF_POS = 0x4;
+        private const uint SIF_TRACKPOS = 0x10;
+        private const int WS_HSCROLL = 0x00100000;
+        private const int WS_VSCROLL = 0x00200000;
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct SCROLLINFO
+        {
+            public uint cbSize;
+            public uint fMask;
+            public int nMin;
+            public int nMax;
+            public uint nPage;
+            public int nPos;
+            public int nTrackPos;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern int SetScrollInfo(IntPtr hWnd, int bar, ref SCROLLINFO info, bool redraw);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetScrollInfo(IntPtr hWnd, int bar, ref SCROLLINFO info);
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                // so the bars survive if WinForms rebuilds the window's styles
+                CreateParams cp = base.CreateParams;
+                if (showHScroll) cp.Style |= WS_HSCROLL;
+                if (showVScroll) cp.Style |= WS_VSCROLL;
+                return cp;
+            }
+        }
+
+        // Brings the scrollbars and scrollOffset in line with the canvas size and each other.
+        private void UpdateScrollbars()
+        {
+            int extentWidth = canvasSize.Width + 2 * canvasMargin;
+            int extentHeight = canvasSize.Height + 2 * canvasMargin;
+
+            if (IsHandleCreated && !updatingScrollbars)
+            {
+                // setting a bar can change the client size, which raises Resize, which comes back here
+                updatingScrollbars = true;
+                try
+                {
+                    // Windows shows a bar only when its page is smaller than its range. Showing one
+                    // shrinks the client area, which can make the other one necessary, so go round
+                    // more than once.
+                    for (int pass = 0; pass < 3; ++pass)
+                    {
+                        scrollOffset = ClampScroll(scrollOffset, ClientSize, extentWidth, extentHeight);
+                        SetScrollBar(SB_HORZ, extentWidth, ClientSize.Width, scrollOffset.X);
+                        SetScrollBar(SB_VERT, extentHeight, ClientSize.Height, scrollOffset.Y);
+                    }
+                }
+                finally
+                {
+                    updatingScrollbars = false;
+                }
+            }
+
+            viewport = ClientSize;
+            scrollOffset = ClampScroll(scrollOffset, viewport, extentWidth, extentHeight);
+            showHScroll = extentWidth > viewport.Width;
+            showVScroll = extentHeight > viewport.Height;
+        }
+
+        private static Point ClampScroll(Point offset, Size view, int extentWidth, int extentHeight)
+        {
+            return new Point(
+                Math.Max(0, Math.Min(offset.X, extentWidth - view.Width)),
+                Math.Max(0, Math.Min(offset.Y, extentHeight - view.Height)));
+        }
+
+        // what each bar was last set to: redrawing a scrollbar is slow enough to matter when it
+        // happens several times per scroll step, so only real changes are passed on
+        private readonly int[] barExtent = { -1, -1 };
+        private readonly int[] barPage = { -1, -1 };
+        private readonly int[] barPosition = { -1, -1 };
+
+        private void SetScrollBar(int bar, int extent, int page, int position)
+        {
+            if (barExtent[bar] == extent && barPage[bar] == page && barPosition[bar] == position)
+            {
+                return;
+            }
+
+            barExtent[bar] = extent;
+            barPage[bar] = page;
+            barPosition[bar] = position;
+
+            SCROLLINFO info = new SCROLLINFO();
+            info.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(SCROLLINFO));
+            info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+            info.nMin = 0;
+            info.nMax = Math.Max(0, extent - 1);
+            info.nPage = (uint)Math.Max(0, page);
+            info.nPos = position;
+            SetScrollInfo(this.Handle, bar, ref info, true);
+        }
+
+        // Where a WM_HSCROLL or WM_VSCROLL command wants the view to be, or -1 for no change.
+        // These come from the scrollbars themselves and from touchpad drivers.
+        private int ScrollCommandTarget(bool horizontal, IntPtr wParam)
+        {
+            int command = (int)((long)wParam & 0xFFFF);
+            int current = horizontal ? scrollOffset.X : scrollOffset.Y;
+            int page = horizontal ? viewport.Width : viewport.Height;
+            int line = Math.Max(1, page / 20);
+
+            switch (command)
+            {
+                case 0: return Math.Max(0, current - line);   // SB_LINEUP / SB_LINELEFT
+                case 1: return current + line;                // SB_LINEDOWN / SB_LINERIGHT
+                case 2: return Math.Max(0, current - page);   // SB_PAGEUP / SB_PAGELEFT
+                case 3: return current + page;                // SB_PAGEDOWN / SB_PAGERIGHT
+                case 6: return 0;                             // SB_TOP / SB_LEFT
+                case 7: return int.MaxValue / 2;              // SB_BOTTOM / SB_RIGHT
+
+                case 4:                                       // SB_THUMBPOSITION
+                case 5:                                       // SB_THUMBTRACK
+                    {
+                        // The message only carries 16 bits of the position. While the thumb is really
+                        // being dragged the full value is in nTrackPos; a message a driver made up
+                        // doesn't update that, so its 16 bits are all there is.
+                        int carried = (int)(((long)wParam >> 16) & 0xFFFF);
+
+                        SCROLLINFO info = new SCROLLINFO();
+                        info.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(SCROLLINFO));
+                        info.fMask = SIF_TRACKPOS;
+                        if (GetScrollInfo(this.Handle, horizontal ? SB_HORZ : SB_VERT, ref info) && (info.nTrackPos & 0xFFFF) == carried)
+                        {
+                            return info.nTrackPos;
+                        }
+
+                        return carried;
+                    }
+
+                default: return -1;                           // SB_ENDSCROLL
+            }
+        }
+
+        // Where the canvas is within this control: centered if it fits, otherwise wherever it is scrolled to.
+        private Point CanvasLocation
+        {
+            get
+            {
+                int x = canvasMargin - scrollOffset.X;
+                int y = canvasMargin - scrollOffset.Y;
+
+                if (viewport.Width > canvasSize.Width + 2 * canvasMargin)
+                {
+                    x = (viewport.Width - canvasSize.Width) / 2;
+                }
+
+                if (viewport.Height > canvasSize.Height + 2 * canvasMargin)
+                {
+                    y = (viewport.Height - canvasSize.Height) / 2;
+                }
+
+                return new Point(x, y);
+            }
+        }
+
+        private Rectangle CanvasBounds
+        {
+            get { return new Rectangle(CanvasLocation, canvasSize); }
+        }
+
+        private readonly RegionPainter painter = new RegionPainter();
+
+        private const int WM_HSCROLL = 0x0114;
+        private const int WM_VSCROLL = 0x0115;
+        private const int WM_MOUSEWHEEL = 0x020A;
+        private const int WM_MOUSEHWHEEL = 0x020E;
+
+        // Pen pressure. A pen sends pointer messages, which Windows then turns into the mouse
+        // messages the rest of this control works from. The pressure is only in the pointer
+        // messages, so it is noted as they go by and attached to the canvas mouse events of a
+        // stroke that the pen started.
+        private const int WM_POINTERUPDATE = 0x0245;
+        private const int WM_POINTERDOWN = 0x0246;
+        private const int WM_POINTERUP = 0x0247;
+        private const int WM_POINTERLEAVE = 0x024A;
+        private const int PT_PEN = 3;
+        private const int POINTER_FLAG_INCONTACT = 0x0004;
+        private const int PEN_MASK_PRESSURE = 0x0001;
+        private const int PEN_FLAG_INVERTED = 0x0002; // the eraser end is the one near the screen
+        private const int PEN_FLAG_ERASER = 0x0004;   // and it is touching
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct POINTER_INFO
+        {
+            public int pointerType;
+            public uint pointerId;
+            public uint frameId;
+            public int pointerFlags;
+            public IntPtr sourceDevice;
+            public IntPtr hwndTarget;
+            public Point ptPixelLocation;
+            public Point ptHimetricLocation;
+            public Point ptPixelLocationRaw;
+            public Point ptHimetricLocationRaw;
+            public uint dwTime;
+            public uint historyCount;
+            public int inputData;
+            public uint dwKeyStates;
+            public ulong performanceCount;
+            public int buttonChangeType;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct POINTER_PEN_INFO
+        {
+            public POINTER_INFO pointerInfo;
+            public int penFlags;
+            public int penMask;
+            public uint pressure; // 0 to 1024
+            public uint rotation;
+            public int tiltX;
+            public int tiltY;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetPointerType(uint pointerId, out int pointerType);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetPointerPenInfo(uint pointerId, out POINTER_PEN_INFO penInfo);
+
+        private bool penInContact;
+        private float penPressure = 1f;
+        private bool strokeFromPen;
+        private bool penEraser;
+        private bool strokeEraser;
+
+        private void TrackPen(ref Message m)
+        {
+            uint pointerId = (uint)((long)m.WParam & 0xFFFF);
+            int pointerType;
+            if (!GetPointerType(pointerId, out pointerType) || pointerType != PT_PEN)
+            {
+                return;
+            }
+
+            POINTER_PEN_INFO info;
+            if (m.Msg == WM_POINTERUP || m.Msg == WM_POINTERLEAVE || !GetPointerPenInfo(pointerId, out info))
+            {
+                penInContact = false;
+                return;
+            }
+
+            penInContact = (info.pointerInfo.pointerFlags & POINTER_FLAG_INCONTACT) != 0;
+            penEraser = (info.penFlags & (PEN_FLAG_INVERTED | PEN_FLAG_ERASER)) != 0;
+            penPressure = (info.penMask & PEN_MASK_PRESSURE) != 0 ? Math.Min(1f, info.pressure / 1024f) : 1f;
+        }
+
+        // 1 unless a pen is drawing
+        private float StrokePressure
+        {
+            get { return strokeFromPen ? penPressure : 1f; }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_POINTERUPDATE || m.Msg == WM_POINTERDOWN || m.Msg == WM_POINTERUP || m.Msg == WM_POINTERLEAVE)
+            {
+                // only noted: the message carries on, and comes back as mouse messages
+                TrackPen(ref m);
+            }
+
+            if (m.Msg == WM_MOUSEHWHEEL)
+            {
+                HandleWheelMessage(ref m);
+                return;
+            }
+
+            // from the window's own scrollbars, or from a touchpad driver that scrolls with them
+            if (m.Msg == WM_HSCROLL || m.Msg == WM_VSCROLL)
+            {
+                bool horizontal = m.Msg == WM_HSCROLL;
+                int target = ScrollCommandTarget(horizontal, m.WParam);
+                if (target >= 0)
+                {
+                    ScrollPosition = horizontal ? new Point(target, scrollOffset.Y) : new Point(scrollOffset.X, target);
+                    AfterScroll(false);
+                }
+                m.Result = IntPtr.Zero;
+                return;
+            }
+
+            painter.BeforeWndProc(this, ref m);
+            base.WndProc(ref m);
+        }
+
+        /// <summary>
+        /// The wheel distance in a WM_MOUSEWHEEL or WM_MOUSEHWHEEL message. For the horizontal one,
+        /// positive is to the right.
+        /// </summary>
+        public static int WheelDelta(Message m)
+        {
+            return (short)(((long)m.WParam >> 16) & 0xFFFF);
+        }
+
+        /// <summary>
+        /// Scrolls for a wheel message, whichever window it was addressed to.
+        /// </summary>
+        internal void HandleWheelMessage(ref Message m)
+        {
+            if (m.Msg == WM_MOUSEHWHEEL)
+            {
+                PerformHorizontalMouseWheel(WheelDelta(m));
+
+                // The documentation says to return 0, but some mouse and touchpad drivers take that
+                // as "not handled" and switch to emulating the scroll some other way.
+                m.Result = (IntPtr)1;
+            }
+            else
+            {
+                PerformMouseWheel(new MouseEventArgs(MouseButtons.None, 0, 0, 0, WheelDelta(m)));
+                m.Result = IntPtr.Zero;
+            }
+        }
+
+        // Whether a wheel message, whoever it is addressed to, is meant for the canvas.
+        private bool IsMouseOverForWheel()
+        {
+            if (!IsHandleCreated || !Visible)
+            {
+                return false;
+            }
+
+            Form form = FindForm();
+            if (form == null || Form.ActiveForm != form)
+            {
+                return false;
+            }
+
+            // a drop-down or menu open over the canvas is a window of its own, and gets its own wheel
+            return WindowFromPoint(Cursor.Position) == this.Handle;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(Point point);
+
+        /// <summary>
+        /// Scrolls sideways for a horizontal wheel or a two-finger sideways swipe on a touchpad. WinForms
+        /// has no event for these, so the owner passes on WM_MOUSEHWHEEL messages that reach it instead
+        /// of this control, the same way it calls PerformMouseWheel.
+        /// </summary>
+        public void PerformHorizontalMouseWheel(int delta)
+        {
+            ScrollBy(delta, 0);
+            AfterScroll(false);
+        }
+
         protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            // the background is painted in OnPaint, into the same buffer as everything else
+        }
+
+        private bool painting;
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            // DrawComposited runs its rows in parallel, and while this thread waits for them it can be
+            // handed another paint message (another thread invalidating the canvas is enough). The two
+            // would share the scratch buffer, so put the inner one off until this one is done.
+            if (painting)
+            {
+                Rectangle again = e.ClipRectangle;
+                BeginInvoke(new Action(() => this.Invalidate(again)));
+                return;
+            }
+
+            painting = true;
+            try
+            {
+                PaintNow(e);
+            }
+            finally
+            {
+                painting = false;
+            }
+        }
+
+        private void PaintNow(PaintEventArgs e)
+        {
+            Rectangle canvasBounds = CanvasBounds;
+
+            painter.Paint(e, ClientRectangle, (g, clip) =>
+            {
+                if (!canvasBounds.Contains(clip))
+                {
+                    PaintBackground(g, clip);
+                }
+
+                Rectangle canvasClip = Rectangle.Intersect(clip, canvasBounds);
+                if (canvasClip.Width > 0 && canvasClip.Height > 0)
+                {
+                    // the canvas is drawn in its own coordinates
+                    GraphicsState state = g.Save();
+                    g.TranslateTransform(canvasBounds.X, canvasBounds.Y);
+                    canvasClip.Offset(-canvasBounds.X, -canvasBounds.Y);
+                    g.SetClip(canvasClip, CombineMode.Intersect);
+
+                    PaintCanvas(g, canvasClip);
+                    DrawSelection(g);
+
+                    g.Restore(state);
+                }
+
+                if ((panelhasmouse || brushPreview) && !panning && !spaceHeld)
+                {
+                    int scaledbrushradius = ScaledBrushRadius;
+                    int left = (int)canvasmouselocation.X - scaledbrushradius - 1 + canvasBounds.X;
+                    int top = (int)canvasmouselocation.Y - scaledbrushradius - 1 + canvasBounds.Y;
+                    int diameter = 2 * scaledbrushradius + 2;
+
+                    // a black ring with a white one just inside it, so it shows on dark and light images alike
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    g.DrawEllipse(Pens.Black, left, top, diameter, diameter);
+                    if (diameter > 4)
+                    {
+                        g.DrawEllipse(Pens.White, left + 1, top + 1, diameter - 2, diameter - 2);
+                    }
+
+                    // the fainter inner ring; not worth drawing when it would sit on the outer one
+                    // or be too small to tell from a dot
+                    int innerRadius = (int)(scaledbrushradius * brushInnerFraction);
+                    if (innerRadius >= 6 && scaledbrushradius - innerRadius >= 4)
+                    {
+                        int centerX = (int)canvasmouselocation.X + canvasBounds.X;
+                        int centerY = (int)canvasmouselocation.Y + canvasBounds.Y;
+
+                        using (Pen darkPen = new Pen(Color.FromArgb(110, Color.Black)))
+                        using (Pen lightPen = new Pen(Color.FromArgb(150, Color.White)))
+                        {
+                            g.DrawEllipse(darkPen, centerX - innerRadius, centerY - innerRadius, 2 * innerRadius, 2 * innerRadius);
+                            g.DrawEllipse(lightPen, centerX - innerRadius + 1, centerY - innerRadius + 1, 2 * innerRadius - 2, 2 * innerRadius - 2);
+                        }
+                    }
+                }
+
+                using (PaintEventArgs bufferedArgs = new PaintEventArgs(g, clip))
+                {
+                    base.OnPaint(bufferedArgs);
+                }
+            });
+        }
+
+        // The area around the canvas. The "Background" menu can give it a see-through color, so it
+        // needs a checkerboard too.
+        private void PaintBackground(Graphics g, Rectangle clip)
         {
             if (BackColor.A != 255)
             {
@@ -61,49 +655,281 @@ namespace pyrochild.effects.common
                     outerCheckerBrush = new TextureBrush(CreateCheckerboardTile(this.DeviceDpi / 96f), WrapMode.Tile);
                 }
 
-                e.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
-                e.Graphics.FillRectangle(outerCheckerBrush, e.ClipRectangle);
+                g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                g.FillRectangle(outerCheckerBrush, clip);
             }
 
             if (BackColor != Color.Transparent)
             {
                 using (Brush b = new SolidBrush(BackColor))
                 {
-                    e.Graphics.FillRectangle(b, e.ClipRectangle);
+                    g.FillRectangle(b, clip);
                 }
             }
         }
 
-        void canvas_Paint(object sender, PaintEventArgs e)
+        // Draws the canvas: its background and the image. g and clip are in canvas coordinates.
+        private void PaintCanvas(Graphics g, Rectangle clip)
         {
-            DrawSelection(e.Graphics);
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            if (panelhasmouse || canvashasmouse)
+            if (surface != null)
             {
-                int scaledbrushradius = (int)(brushRadius * scale);
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                e.Graphics.DrawEllipse(
-                    Pens.Black,
-                    (int)canvasmouselocation.X - scaledbrushradius - 1,
-                    (int)canvasmouselocation.Y - scaledbrushradius - 1,
-                    2 * scaledbrushradius + 2,
-                    2 * scaledbrushradius + 2);
+                DrawComposited(g, clip);
+                return;
+            }
+
+            Rectangle whole = new Rectangle(Point.Empty, canvasSize);
+
+            if (canvasBackColor.A != 255)
+            {
+                if (canvasCheckerBrush == null)
+                {
+                    canvasCheckerBrush = new TextureBrush(CreateCheckerboardTile(this.DeviceDpi / 96f), WrapMode.Tile);
+                }
+
+                g.FillRectangle(canvasCheckerBrush, clip);
+            }
+            if (canvasBackColor != Color.Transparent)
+            {
+                using (Brush b = new SolidBrush(canvasBackColor))
+                {
+                    g.FillRectangle(b, clip);
+                }
+            }
+            if (canvasBackgroundImage != null)
+            {
+                g.DrawImage(canvasBackgroundImage, whole);
             }
         }
 
-        void CanvasPanel_Paint(object sender, PaintEventArgs e)
+        const int parallelMinPixels = 128 * 128;
+
+        // Draws the canvas background and the scaled image for the clip in one pass of our own, rather
+        // than as separate GDI+ calls. Two reasons:
+        // - It has to be quick at full-screen size, and this way the rows can be done in parallel.
+        // - GDI+'s nearest-neighbor scaling picks source pixels that shift with the clip at some
+        //   scales, so the image would shimmer wherever a small area (like the brush circle) is repainted.
+        private unsafe void DrawComposited(Graphics g, Rectangle clip)
         {
-            if (panelhasmouse || canvashasmouse)
+            int clipHeight = clip.Height;
+
+            // packed as clip.Width x clip.Height, whatever the array's real size
+            if (scaled == null || scaled.Length < clip.Width * clipHeight)
             {
-                int scaledbrushradius = (int)(brushRadius * scale);
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                e.Graphics.DrawEllipse(
-                    Pens.Black,
-                    (int)canvasmouselocation.X - scaledbrushradius - 1 + canvas.Location.X,
-                    (int)canvasmouselocation.Y - scaledbrushradius - 1 + canvas.Location.Y,
-                    2 * scaledbrushradius + 2,
-                    2 * scaledbrushradius + 2);
+                scaled = new uint[clip.Width * clipHeight];
             }
+
+            if (sourceColumns == null || sourceColumns.Length < clip.Width)
+            {
+                sourceColumns = new int[clip.Width];
+            }
+
+            int imageWidth = surface.Width;
+            int imageHeight = surface.Height;
+            long canvasWidth = canvasSize.Width;
+            long canvasHeight = canvasSize.Height;
+            int clipLeft = clip.Left;
+            int clipTop = clip.Top;
+            int clipWidth = clip.Width;
+            int[] columns = sourceColumns;
+            CanvasRowOverlay overlay = rowOverlay;
+            float overlayScale = scale;
+
+            // the source pixel under the center of each output pixel, in whole numbers so that it
+            // comes out the same no matter where the clip starts
+            for (int x = 0; x < clipWidth; ++x)
+            {
+                columns[x] = (int)((2L * (clipLeft + x) + 1) * imageWidth / (2 * canvasWidth));
+            }
+
+            // What shows through transparent pixels: the same checkerboard as CreateCheckerboardTile,
+            // with the canvas background color laid over it.
+            int cell = Math.Max(4, (int)Math.Round(8 * this.DeviceDpi / 96f));
+            uint back = (uint)canvasBackColor.ToArgb();
+            uint light = BlendOver(back, back >> 24, 0xFFFFFFFF);
+            uint dark = BlendOver(back, back >> 24, 0xFFBFBFBF);
+
+            // The result goes onto g with plain GDI, which knows nothing about g's transform, so work out
+            // where the clip is on the device. (Drawing it with GDI+ instead costs far more: for every
+            // row it processes the whole width of the source, however narrow the part being drawn.)
+            Point[] deviceOrigin = { clip.Location };
+            g.TransformPoints(CoordinateSpace.Device, CoordinateSpace.World, deviceOrigin);
+
+            fixed (uint* scaledPixels = scaled)
+            {
+                // read the surface's memory directly; locking the bitmap that wraps it isn't needed
+                // and fails if a paint is ever nested inside another
+                {
+                    IntPtr srcScan0 = (IntPtr)surface.Scan0;
+                    IntPtr dstScan0 = (IntPtr)scaledPixels;
+                    int srcStride = surface.Stride;
+
+                    // the optional image behind the canvas's own, pixel for pixel
+                    Surface background = (backgroundSurfaceHidden || previewingBackColor) ? null : (backgroundSurface ?? BackgroundImageSurface());
+                    if (background != null && (background.IsDisposed || background.Size != SurfaceSize))
+                    {
+                        background = null;
+                    }
+                    IntPtr backScan0 = background != null ? background.Scan0.Pointer : IntPtr.Zero;
+                    int backStride = background != null ? background.Stride : 0;
+
+                    // and the optional ones in front of it, bottom first
+                    CanvasForegroundLayer[] foreground = foregroundLayers;
+                    bool foregroundHasOps = false;
+                    if (foreground != null)
+                    {
+                        foreach (CanvasForegroundLayer layer in foreground)
+                        {
+                            if (layer.Surface.IsDisposed || layer.Surface.Size != SurfaceSize)
+                            {
+                                foreground = null;
+                                break;
+                            }
+                            foregroundHasOps |= layer.Op != null;
+                        }
+                    }
+
+                    Action<int> row = y =>
+                    {
+                        int sourceRow = (int)((2L * (clipTop + y) + 1) * imageHeight / (2 * canvasHeight));
+                        uint* srcPixels = (uint*)((byte*)srcScan0 + (long)sourceRow * srcStride);
+                        uint* backPixels = backScan0 != IntPtr.Zero ? (uint*)((byte*)backScan0 + (long)sourceRow * backStride) : null;
+                        uint* dstPixels = (uint*)dstScan0 + (long)y * clipWidth;
+                        int celly = (clipTop + y) / cell;
+
+                        for (int x = 0; x < clipWidth; ++x)
+                        {
+                            uint pixel = srcPixels[columns[x]];
+                            uint alpha = pixel >> 24;
+
+                            if (alpha != 255)
+                            {
+                                uint under = (((clipLeft + x) / cell + celly) & 1) == 0 ? light : dark;
+
+                                if (backPixels != null)
+                                {
+                                    uint back = backPixels[columns[x]];
+                                    under = BlendOver(back, back >> 24, under);
+                                }
+
+                                pixel = BlendOver(pixel, alpha, under);
+                            }
+
+                            dstPixels[x] = pixel;
+                        }
+
+                        if (foreground != null)
+                        {
+                            // a blend operation works on whole rows, so the layer's row is first
+                            // scaled the same way as the image's
+                            uint* scaledLayer = stackalloc uint[foregroundHasOps ? clipWidth : 1];
+
+                            foreach (CanvasForegroundLayer layer in foreground)
+                            {
+                                uint* forePixels = (uint*)((byte*)layer.Surface.Scan0.Pointer + (long)sourceRow * layer.Surface.Stride);
+
+                                if (layer.Op != null)
+                                {
+                                    for (int x = 0; x < clipWidth; ++x)
+                                    {
+                                        scaledLayer[x] = forePixels[columns[x]];
+                                    }
+
+                                    layer.Op.Apply((ColorBgra*)dstPixels, (ColorBgra*)scaledLayer, clipWidth);
+                                    continue;
+                                }
+
+                                for (int x = 0; x < clipWidth; ++x)
+                                {
+                                    uint front = forePixels[columns[x]];
+                                    uint frontAlpha = front >> 24;
+
+                                    if (frontAlpha == 255)
+                                    {
+                                        dstPixels[x] = front;
+                                    }
+                                    else if (frontAlpha != 0)
+                                    {
+                                        dstPixels[x] = BlendOver(front, frontAlpha, dstPixels[x]);
+                                    }
+                                }
+                            }
+                        }
+
+                        if (overlay != null)
+                        {
+                            overlay((IntPtr)dstPixels, clipLeft, clipTop + y, clipWidth, overlayScale);
+                        }
+                    };
+
+                    if ((long)clipWidth * clipHeight < parallelMinPixels)
+                    {
+                        for (int y = 0; y < clipHeight; ++y)
+                        {
+                            row(y);
+                        }
+                    }
+                    else
+                    {
+                        System.Threading.Tasks.Parallel.For(0, clipHeight, row);
+                    }
+                }
+
+                BITMAPINFOHEADER header = new BITMAPINFOHEADER();
+                header.biSize = (uint)sizeof(BITMAPINFOHEADER);
+                header.biWidth = clipWidth;
+                header.biHeight = -clipHeight; // negative means the rows run top to bottom
+                header.biPlanes = 1;
+                header.biBitCount = 32;
+
+                IntPtr hdc = g.GetHdc();
+                try
+                {
+                    SetDIBitsToDevice(hdc, deviceOrigin[0].X, deviceOrigin[0].Y, (uint)clipWidth, (uint)clipHeight,
+                        0, 0, 0, (uint)clipHeight, (IntPtr)scaledPixels, ref header, 0);
+                }
+                finally
+                {
+                    g.ReleaseHdc(hdc);
+                }
+            }
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct BITMAPINFOHEADER
+        {
+            public uint biSize;
+            public int biWidth;
+            public int biHeight;
+            public ushort biPlanes;
+            public ushort biBitCount;
+            public uint biCompression;
+            public uint biSizeImage;
+            public int biXPelsPerMeter;
+            public int biYPelsPerMeter;
+            public uint biClrUsed;
+            public uint biClrImportant;
+        }
+
+        [System.Runtime.InteropServices.DllImport("gdi32.dll")]
+        private static extern int SetDIBitsToDevice(IntPtr hdc, int xDest, int yDest, uint width, uint height,
+            int xSrc, int ySrc, uint startScan, uint lines, IntPtr bits, ref BITMAPINFOHEADER info, uint colorUse);
+
+        // color (straight alpha) over an opaque color
+        private static uint BlendOver(uint color, uint alpha, uint under)
+        {
+            if (alpha == 0)
+            {
+                return under;
+            }
+
+            uint inverse = 255 - alpha;
+            uint r = (((color >> 16) & 255) * alpha + ((under >> 16) & 255) * inverse + 127) / 255;
+            uint g = (((color >> 8) & 255) * alpha + ((under >> 8) & 255) * inverse + 127) / 255;
+            uint b = ((color & 255) * alpha + (under & 255) * inverse + 127) / 255;
+            return 0xFF000000 | (r << 16) | (g << 8) | b;
         }
 
         private void DrawSelection(Graphics gdiG)
@@ -145,8 +971,8 @@ namespace pyrochild.effects.common
             g.CompositingMode = oldCM;
         }
 
-        public static readonly float[] ZoomFactors = 
-            { 
+        public static readonly float[] ZoomFactors =
+            {
                 .01f, .02f, .03f, .04f, .05f, .06f, .08f, .12f, .16f, .25f, .33f, .5f, .66f, 1,
                 1.5f, 2, 3, 4, 5, 6, 7, 8, 12, 16
             };
@@ -167,8 +993,33 @@ namespace pyrochild.effects.common
             {
                 InvalidateBrush();
                 brushSize = value;
-                brushRadius = value / 2;
                 InvalidateBrush();
+            }
+        }
+
+        // on screen, rounded so that odd sizes aren't drawn as the even size below
+        private int ScaledBrushRadius
+        {
+            get { return (int)(brushSize * scale / 2 + 0.5f); }
+        }
+
+        /// <summary>
+        /// Where to draw a second, fainter ring inside the brush circle, as a fraction of its radius.
+        /// It is for showing where a soft brush starts to fade. 0 means no inner ring.
+        /// </summary>
+        public float BrushInnerFraction
+        {
+            get
+            {
+                return brushInnerFraction;
+            }
+            set
+            {
+                if (brushInnerFraction != value)
+                {
+                    brushInnerFraction = value;
+                    InvalidateBrush();
+                }
             }
         }
 
@@ -189,14 +1040,21 @@ namespace pyrochild.effects.common
         {
             if (selection != null)
             {
+                // these are remade at every zoom
+                unSelection?.Dispose();
+                selectionOutline?.Dispose();
+
                 unSelection = new PdnRegion(new Rectangle(0, 0, surface.Width, surface.Height));
                 unSelection.Exclude(selection);
-                selectionOutline = selection.GetOutline(surface.Bounds, scale);
+                selectionOutline = selection.GetOutline(new Rectangle(Point.Empty, SurfaceSize), scale);
             }
-            canvas.Invalidate();
+            InvalidateCanvas();
         }
 
-        public Surface Surface
+        /// <summary>
+        /// The image shown. The canvas doesn't own it: set this to null before the pixels go away.
+        /// </summary>
+        public ISurface<ColorBgra> Surface
         {
             get
             {
@@ -205,44 +1063,212 @@ namespace pyrochild.effects.common
             set
             {
                 surface = value;
+
                 if (surface != null)
                 {
-                    canvas.Image = surface.CreateAliasedBitmap();
                     UpdateSize();
                 }
             }
+        }
+
+        private Size SurfaceSize
+        {
+            get { return new Size(surface.Width, surface.Height); }
         }
 
         public Color CanvasBackColor
         {
             get
             {
-                return canvas.BackColor;
+                return canvasBackColor;
             }
             set
             {
-                canvas.BackColor = value;
+                canvasBackColor = value;
+                InvalidateCanvas();
+            }
+        }
+
+        /// <summary>
+        /// Optional. An image the same size as Surface that shows through wherever Surface is
+        /// transparent, in place of the checkerboard (which still shows where this is transparent too).
+        /// The canvas does not take ownership of it. Setting it replaces any background color or image
+        /// picked from the menu.
+        /// </summary>
+        public Surface BackgroundSurface
+        {
+            get
+            {
+                return backgroundSurface;
+            }
+            set
+            {
+                bool changed = backgroundSurface != value;
+
+                backgroundSurface = value;
+                activeBackgroundOption = null; // SelectBackgroundOption sets it again afterwards
+                if (value != null)
+                {
+                    SetBackgroundImage(null);
+                    canvasBackColor = Color.Transparent;
+                }
+                InvalidateCanvas();
+
+                if (changed && BackgroundSurfaceChanged != null)
+                {
+                    BackgroundSurfaceChanged(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        // canvasBackgroundImage stretched to the image's size, which is what DrawComposited needs.
+        // Made when first needed, and again if the image's size changes.
+        private Surface backgroundImageSurface;
+
+        /// <summary>
+        /// Makes a picture the background, stretched over the image; null removes it. The canvas
+        /// takes ownership of it.
+        /// </summary>
+        internal void SetBackgroundImage(Image picture)
+        {
+            if (canvasBackgroundImage != null && canvasBackgroundImage != picture)
+            {
+                canvasBackgroundImage.Dispose();
+            }
+
+            if (backgroundImageSurface != null)
+            {
+                backgroundImageSurface.Dispose();
+                backgroundImageSurface = null;
+            }
+
+            canvasBackgroundImage = picture;
+        }
+
+        private Surface BackgroundImageSurface()
+        {
+            if (canvasBackgroundImage == null)
+            {
+                return null;
+            }
+
+            if (backgroundImageSurface == null || backgroundImageSurface.Size != SurfaceSize)
+            {
+                if (backgroundImageSurface != null)
+                {
+                    backgroundImageSurface.Dispose();
+                }
+
+                backgroundImageSurface = new Surface(surface.Width, surface.Height);
+                using (Bitmap pixels = backgroundImageSurface.CreateAliasedBitmap())
+                using (Graphics g = Graphics.FromImage(pixels))
+                {
+                    g.CompositingMode = CompositingMode.SourceCopy;
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    g.DrawImage(canvasBackgroundImage, 0, 0, pixels.Width, pixels.Height);
+                }
+            }
+
+            return backgroundImageSurface;
+        }
+
+        /// <summary>
+        /// Leaves BackgroundSurface out of the picture without changing which background is chosen.
+        /// </summary>
+        public bool BackgroundSurfaceHidden
+        {
+            get
+            {
+                return backgroundSurfaceHidden;
+            }
+            set
+            {
+                if (backgroundSurfaceHidden != value)
+                {
+                    backgroundSurfaceHidden = value;
+                    InvalidateCanvas();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Optional. Pictures drawn over the image, bottom first, each blended onto everything
+        /// under it (the image, and whatever shows through it) as the canvas paints.
+        /// </summary>
+        public CanvasForegroundLayer[] ForegroundLayers
+        {
+            get
+            {
+                return foregroundLayers;
+            }
+            set
+            {
+                foregroundLayers = (value != null && value.Length > 0) ? value : null;
+                InvalidateCanvas();
+            }
+        }
+
+        /// <summary>
+        /// Raised when BackgroundSurface changes, including when the user replaces it by picking a
+        /// color or image from the menu. An owner can use it to free a surface that is no longer shown.
+        /// </summary>
+        public event EventHandler BackgroundSurfaceChanged;
+
+        /// <summary>
+        /// Extra entries for the canvas's right-click "Background" menu. Picking one makes its surface
+        /// the BackgroundSurface.
+        /// </summary>
+        public IList<CanvasBackgroundOption> BackgroundOptions
+        {
+            get { return backgroundOptions; }
+        }
+
+        /// <summary>
+        /// Optional. Called for every row of the canvas as it is painted, to draw over the image at
+        /// screen resolution. It is called from several threads at once.
+        /// </summary>
+        public CanvasRowOverlay RowOverlay
+        {
+            get
+            {
+                return rowOverlay;
+            }
+            set
+            {
+                rowOverlay = value;
+                InvalidateCanvas();
             }
         }
 
         public void InvalidateCanvas()
         {
-            canvas.Invalidate();
+            this.Invalidate(CanvasBounds);
         }
 
+        /// <param name="invalidRect">in the surface's coordinates</param>
         public void InvalidateCanvas(Rectangle invalidRect)
         {
-            canvas.Invalidate(invalidRect.Factor(scale));
+            Point location = CanvasLocation;
+
+            // round outwards, so a partly covered pixel at the edge is included
+            int left = (int)Math.Floor(invalidRect.Left * scale);
+            int top = (int)Math.Floor(invalidRect.Top * scale);
+            int right = (int)Math.Ceiling(invalidRect.Right * scale);
+            int bottom = (int)Math.Ceiling(invalidRect.Bottom * scale);
+
+            this.Invalidate(new Rectangle(left + location.X, top + location.Y, right - left, bottom - top));
         }
 
         private void UpdateSize()
         {
             if (surface != null)
             {
-                canvas.Size = surface.Size.Factor(scale);
+                canvasSize = SurfaceSize.Factor(scale);
             }
-            this.SetAutoScrollMargin(10, 10);
-            CanvasPanel_Resize(this, EventArgs.Empty);
+
+            UpdateScrollbars();
+            this.Invalidate();
         }
 
         public float ZoomFactor
@@ -253,15 +1279,39 @@ namespace pyrochild.effects.common
             }
             set
             {
-                if (scale != value)
-                {
-                    scale = value;
-                    UpdateSize();
-                    InvalidateSelection();
-                    OnZoomFactorChanged();
-                    PerformLayout();
-                    Invalidate();
-                }
+                SetZoom(value, false);
+            }
+        }
+
+        private bool zoomedToFit;
+
+        /// <summary>
+        /// True while the zoom is the one ZoomToFit chose. The image is then fitted again whenever
+        /// the panel is resized, until some other zoom is set.
+        /// </summary>
+        public bool ZoomedToFit
+        {
+            get { return zoomedToFit; }
+        }
+
+        private void SetZoom(float value, bool fit)
+        {
+            bool fitChanged = zoomedToFit != fit;
+            zoomedToFit = fit;
+
+            if (scale != value)
+            {
+                scale = value;
+                UpdateSize();
+                InvalidateSelection();
+                OnZoomFactorChanged();
+                PerformLayout();
+                Invalidate();
+            }
+            else if (fitChanged)
+            {
+                // the same number, but owners show a fitted zoom differently
+                OnZoomFactorChanged();
             }
         }
 
@@ -270,124 +1320,697 @@ namespace pyrochild.effects.common
             OnCanvasMouseHold(buttons, canvasmouselocation.X, canvasmouselocation.Y);
         }
 
-        private void canvas_MouseDown(object sender, MouseEventArgs e)
-        {
-            if (e.Button == MouseButtons.Right)
-                ShowContextMenu(canvas, e.Location, false);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetKeyState(int virtualKey);
 
-            OnCanvasMouseDown(e.Button, e.X, e.Y);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int virtualKey);
+
+        private const int VK_SPACE = 0x20;
+
+        private bool panning;
+        private MouseButtons panButton;
+        private Point panStartMouse;
+        private Point panStartScroll;
+
+        // Dragging with the middle button, or with the left button while space is held, scrolls the view.
+        private bool BeginPan(MouseButtons button)
+        {
+            if (panning)
+            {
+                return true;
+            }
+
+            // either view of the keyboard will do: the state as of the message being handled, or right now
+            bool spaceDown = GetKeyState(VK_SPACE) < 0 || GetAsyncKeyState(VK_SPACE) < 0;
+            bool pan = button == MouseButtons.Middle || (button == MouseButtons.Left && spaceDown);
+
+            if (!pan)
+            {
+                return false;
+            }
+
+            InvalidateBrush(); // the brush circle is hidden while panning
+            panning = true;
+            panButton = button;
+            panStartMouse = Cursor.Position;
+            panStartScroll = ScrollPosition;
+            UpdatePanCursor();
+            return true;
         }
 
-        private void canvas_MouseMove(object sender, MouseEventArgs e)
+        // While space is held the panel is ready to pan: it shows the pan cursor instead of the brush
+        // circle, before any dragging starts. This control never has keyboard focus, so it watches
+        // for the key with a message filter.
+        private bool spaceHeld;
+        private InputFilter inputFilter;
+
+        private sealed class InputFilter : IMessageFilter
         {
-            OnCanvasMouseMove(e.Button, e.X, e.Y);
+            private const int WM_KEYDOWN = 0x0100;
+            private const int WM_KEYUP = 0x0101;
+
+            private readonly CanvasPanel owner;
+
+            public InputFilter(CanvasPanel owner)
+            {
+                this.owner = owner;
+            }
+
+            public bool PreFilterMessage(ref Message m)
+            {
+                // Wheel messages go to whichever control has focus, or to whatever the touchpad
+                // driver picks, which is rarely this one. Take them here while the mouse is over
+                // the canvas, so scrolling it doesn't depend on any of that.
+                if ((m.Msg == WM_MOUSEWHEEL || m.Msg == WM_MOUSEHWHEEL) && owner.IsMouseOverForWheel())
+                {
+                    owner.HandleWheelMessage(ref m);
+                    return true;
+                }
+
+                if ((m.Msg == WM_KEYDOWN || m.Msg == WM_KEYUP) && (int)m.WParam == VK_SPACE)
+                {
+                    bool down = m.Msg == WM_KEYDOWN;
+
+                    // a space typed into a text field is just a space
+                    Control target = down ? Control.FromChildHandle(m.HWnd) : null;
+                    if (!(target is TextBoxBase || target is ComboBox))
+                    {
+                        owner.SetSpaceHeld(down);
+                    }
+                }
+
+                // only watching: the message carries on as usual
+                return false;
+            }
         }
 
-        private void canvas_MouseUp(object sender, MouseEventArgs e)
+        // Windows' own dark scrollbars, the ones Explorer uses in dark mode.
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hWnd, string subAppName, string subIdList);
+
+        private bool darkScrollbars;
+
+        void IDarkThemeable.ApplyDarkTheme(Color back, Color fore, Color field, Color border)
         {
-            OnCanvasMouseUp(e.Button, e.X, e.Y);
+            darkScrollbars = true;
+            ThemeHelper.StyleMenu(contextMenu);
+            if (IsHandleCreated)
+            {
+                SetWindowTheme(this.Handle, "DarkMode_Explorer", null);
+            }
         }
 
-        private void canvas_MouseLeave(object sender, System.EventArgs e)
+        protected override void OnHandleCreated(EventArgs e)
         {
-            canvashasmouse = false;
+            base.OnHandleCreated(e);
+
+            if (darkScrollbars)
+            {
+                SetWindowTheme(this.Handle, "DarkMode_Explorer", null);
+            }
+
+            // the scrollbars couldn't be set up before the window existed, and a new window has none
+            barExtent[0] = barExtent[1] = -1;
+            UpdateScrollbars();
+
+            if (inputFilter == null)
+            {
+                inputFilter = new InputFilter(this);
+                Application.AddMessageFilter(inputFilter);
+            }
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            if (inputFilter != null)
+            {
+                Application.RemoveMessageFilter(inputFilter);
+                inputFilter = null;
+            }
+
+            base.OnHandleDestroyed(e);
+        }
+
+        private void SetSpaceHeld(bool held)
+        {
+            if (spaceHeld == held)
+            {
+                return;
+            }
+
+
+            InvalidateBrush();
+            spaceHeld = held;
+            UpdatePanCursor();
+        }
+
+        private void UpdatePanCursor()
+        {
+            this.Cursor = (panning || spaceHeld) ? Cursors.SizeAll : Cursors.Default;
+        }
+
+        private void ContinuePan()
+        {
+            Point mouse = Cursor.Position;
+            ScrollPosition = new Point(
+                panStartScroll.X - (mouse.X - panStartMouse.X),
+                panStartScroll.Y - (mouse.Y - panStartMouse.Y));
+            AfterScroll(true);
+        }
+
+        private void EndPan(MouseButtons button)
+        {
+            if (button == panButton)
+            {
+                panning = false;
+                UpdatePanCursor();
+                SyncBrushToMouse();
+            }
+        }
+
+        // The picture moves under the mouse when it scrolls, so work out again where on the canvas the
+        // mouse is and put the brush circle there.
+        private void SyncBrushToMouse()
+        {
+            if (!panelhasmouse || !IsHandleCreated)
+            {
+                return;
+            }
+
+            Point mouse = PointToClient(Cursor.Position);
+            Point location = CanvasLocation;
+
+            InvalidateBrush();
+            canvasmouselocation = new PointF(mouse.X - location.X, mouse.Y - location.Y);
+            canvashasmouse = CanvasBounds.Contains(mouse);
             InvalidateBrush();
         }
 
-        private void canvas_MouseEnter(object sender, System.EventArgs e)
+        // Every way of scrolling ends up here.
+        // Paint messages wait behind input, so the view would lag behind unless it is repainted right
+        // away. For wheel scrolling (repaintNow false) that is only done once no more wheel messages
+        // are waiting: a diagonal touchpad swipe arrives as separate sideways and vertical messages,
+        // and painting between the two shows as a staircase.
+        private void AfterScroll(bool repaintNow)
         {
-            canvashasmouse = true;
+            if (!panning)
+            {
+                SyncBrushToMouse();
+            }
+
+            if (repaintNow || !IsWheelMessageQueued())
+            {
+                Update();
+            }
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativeMessage
+        {
+            public IntPtr hwnd;
+            public uint message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public uint time;
+            public int x;
+            public int y;
+            public uint extra;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool PeekMessage(out NativeMessage message, IntPtr hWnd, uint filterMin, uint filterMax, uint remove);
+
+        // looks without removing; WM_MOUSEWHEEL to WM_MOUSEHWHEEL covers both
+        private static bool IsWheelMessageQueued()
+        {
+            NativeMessage message;
+            return PeekMessage(out message, IntPtr.Zero, WM_MOUSEWHEEL, WM_MOUSEHWHEEL, 0);
+        }
+
+        /// <summary>
+        /// Zooms so that the whole image just fits in the panel, but never beyond 100%. The result
+        /// is usually not one of ZoomFactors.
+        /// </summary>
+        public void ZoomToFit()
+        {
+            if (surface == null)
+            {
+                return;
+            }
+
+            // wider than canvasMargin, so that the fitted image never needs scrollbars
+            int margin = (int)Math.Ceiling(12 * this.DeviceDpi / 96f);
+            float fit = Math.Min(
+                (this.Width - 2 * margin) / (float)surface.Width,
+                (this.Height - 2 * margin) / (float)surface.Height);
+
+            SetZoom(Math.Clamp(fit, ZoomFactors[0], 1f), true);
+        }
+
+        // Releases of the button that started a drag are acted on a moment later, and dropped if the
+        // same button goes down again first. With two pointing devices in play (a laptop's touchpad
+        // and pointing stick, say) Windows can report a held button as a rapid series of releases and
+        // presses, which would otherwise chop one stroke into many.
+        private const int releaseDelay = 50;
+        private Timer releaseTimer;
+        private bool releasePending;
+        private MouseButtons releaseButton;
+        private Point releaseLocation;
+
+        private void DeferRelease(MouseButtons button, Point location)
+        {
+            bool endsDrag = panning ? button == panButton : (button == buttons && buttons != MouseButtons.None);
+            if (!endsDrag)
+            {
+                Release(button, location);
+                return;
+            }
+
+            if (releaseTimer == null)
+            {
+                releaseTimer = new Timer(components);
+                releaseTimer.Interval = releaseDelay;
+                releaseTimer.Tick += (s, e) => FlushRelease();
+            }
+
+            releasePending = true;
+            releaseButton = button;
+            releaseLocation = location;
+            releaseTimer.Stop();
+            releaseTimer.Start();
+        }
+
+        private void FlushRelease()
+        {
+            if (releaseTimer != null)
+            {
+                releaseTimer.Stop();
+            }
+
+            if (releasePending)
+            {
+                releasePending = false;
+                Release(releaseButton, releaseLocation);
+            }
+        }
+
+        private void Release(MouseButtons button, Point location)
+        {
+            if (panning)
+            {
+                EndPan(button);
+                return;
+            }
+
+            Point canvasLocation = CanvasLocation;
+            OnCanvasMouseUp(button, location.X - canvasLocation.X, location.Y - canvasLocation.Y);
+        }
+
+        /// <summary>
+        /// Ends the drag in progress as if the button had been released, for an owner that can't
+        /// carry on with it. CanvasMouseUp follows shortly. The button's real release, when it
+        /// comes, is reported as another one, with no drag in between.
+        /// </summary>
+        public void EndMouseDrag()
+        {
+            if (Capture)
+            {
+                Capture = false; // handled like any other loss of capture, below
+            }
+        }
+
+        // Losing the mouse capture mid-drag (Alt+Tab, a menu opening) means the release will never
+        // arrive here, so treat it as one.
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+
+            if (!Capture && !releasePending && (panning || buttons != MouseButtons.None))
+            {
+                DeferRelease(panning ? panButton : buttons, PointToClient(Cursor.Position));
+            }
         }
 
         private void CanvasPanel_MouseDown(object sender, MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Right)
-                ShowContextMenu(this, e.Location, true);
+            // Pen drivers differ in which mouse button they send for the eraser end. Whichever it is,
+            // an eraser stroke is a stroke: it is reported as the left button with Eraser set, and
+            // doesn't pan or open the menu.
+            bool eraser = penInContact && penEraser;
+            MouseButtons button = eraser ? MouseButtons.Left : e.Button;
 
-            OnCanvasMouseDown(e.Button, e.X - canvas.Location.X, e.Y - canvas.Location.Y);
+            if (releasePending)
+            {
+                if (button == releaseButton)
+                {
+                    // pressed again before the release was acted on: carry on with the same drag
+                    releasePending = false;
+                    releaseTimer.Stop();
+                    return;
+                }
+
+                FlushRelease();
+            }
+
+            if (BeginPan(button))
+                return;
+
+            Point location = CanvasLocation;
+
+            if (button == MouseButtons.Right)
+                ShowContextMenu(e.Location, CanvasBounds.Contains(e.Location));
+
+            strokeEraser = eraser;
+            OnCanvasMouseDown(button, e.X - location.X, e.Y - location.Y);
         }
 
-        private void ShowContextMenu(Control sender, Point location, bool colorsOnly)
+        // Right-clicking the canvas changes what shows through the image's transparent parts;
+        // right-clicking the area around it changes that area's color.
+        private void ShowContextMenu(Point location, bool onCanvas)
         {
-            contextMenu.Items.Clear();
-            using (Surface sfc = new Surface(16, 16))
+            FillBackgroundMenu(contextMenu, onCanvas);
+            contextMenu.Items.Insert(0, new ToolStripLabel("Background") { ForeColor = contextMenu.ForeColor });
+            contextMenu.Items.Insert(1, new ToolStripSeparator());
+            contextMenu.Show(this, location);
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetClipboardSequenceNumber();
+
+        private Image clipboardSwatch;        // null when the clipboard holds no image
+        private uint clipboardSwatchSequence; // which clipboard contents it was made from
+        private bool clipboardSwatchKnown;
+
+        // Tests replace these so as not to touch the real clipboard. The image can come back null
+        // even when the clipboard says it has one.
+        internal Func<uint> ClipboardSequence = GetClipboardSequenceNumber;
+        internal Func<Image> ReadClipboardImage = () => Clipboard.ContainsImage() ? Clipboard.GetImage() : null;
+
+        // The clipboard's image as a menu swatch, or null if it holds none. Reading the image copies
+        // all of it, so that is only done again when the clipboard has changed.
+        internal Image GetClipboardSwatch()
+        {
+            uint sequence = ClipboardSequence();
+            if (clipboardSwatchKnown && sequence == clipboardSwatchSequence)
             {
-                contextMenu.Items.Add(new ToolStripLabel("Background"));
-                contextMenu.Items.Add(new ToolStripSeparator());
+                return clipboardSwatch;
+            }
 
-                if (!colorsOnly)
-                    contextMenu.Items.Add("Transparent", CreateCheckerboardTile(1f), (s, e) =>
+            if (clipboardSwatch != null)
+            {
+                clipboardSwatch.Dispose();
+                clipboardSwatch = null;
+            }
+            clipboardSwatchKnown = false;
+
+            try
+            {
+                using (Image whole = ReadClipboardImage())
+                {
+                    if (whole != null)
                     {
-                        sender.BackgroundImage = null;
-                        sender.BackColor = Color.Transparent;
-                    });
-
-                sfc.Fill(ColorBgra.Black);
-                contextMenu.Items.Add("Black", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) =>
-                {
-                    sender.BackgroundImage = null;
-                    sender.BackColor = Color.Black;
-                });
-
-                sfc.Fill(ColorBgra.White);
-                contextMenu.Items.Add("White", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) =>
-                {
-                    sender.BackgroundImage = null;
-                    sender.BackColor = Color.White;
-                });
-
-                sfc.Fill(ColorBgra.FromBgr(127, 127, 127));
-                contextMenu.Items.Add("Gray", new Bitmap(sfc.CreateAliasedBitmap()), (s, e) =>
-                {
-                    sender.BackgroundImage = null;
-                    sender.BackColor = Color.Gray;
-                });
-
-                contextMenu.Items.Add("Other color...", new Bitmap(typeof(Liquify),"images.colorwheel.png"), (s, e) =>
-                {
-                    ColorBgra c;
-                    if (DialogResult.OK == ShowColorPicker(sender, location, !colorsOnly, out c))
-                    {
-                        sender.BackColor = c.ToColor();
-                        sender.BackgroundImage = null;
+                        Bitmap swatch = new Bitmap(16, 16);
+                        using (Graphics g = Graphics.FromImage(swatch))
+                        {
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                            g.DrawImage(whole, 0, 0, 16, 16);
+                        }
+                        clipboardSwatch = swatch;
                     }
-                });
+                }
 
-                if (!colorsOnly)
+                clipboardSwatchSequence = sequence;
+                clipboardSwatchKnown = true;
+            }
+            catch
+            {
+                // another program has the clipboard open, or the image can't be read: try again next time
+            }
+
+            return clipboardSwatch;
+        }
+
+        /// <summary>
+        /// Replaces a menu's entries with the background choices, the same ones as the right-click
+        /// menu, so an owner can offer them somewhere easier to find. The entry that matches the
+        /// current background is checked.
+        /// </summary>
+        /// <param name="onCanvas">true for what shows through the image, false for the area around it</param>
+        public void FillBackgroundMenu(ToolStripDropDown menu, bool onCanvas)
+        {
+            Action<Color> setColor = color =>
+            {
+                if (onCanvas)
                 {
-                    contextMenu.Items.Add("From clipboard", null, (s, e) =>
+                    SetBackgroundImage(null);
+                    BackgroundSurface = null;
+                    canvasBackColor = color;
+                }
+                else
+                {
+                    this.BackColor = color;
+                }
+                this.Invalidate();
+            };
+
+            // what the background is now, to check the matching entry
+            Color current = onCanvas ? canvasBackColor : this.BackColor;
+            bool plainColor = !onCanvas || (canvasBackgroundImage == null && backgroundSurface == null);
+            bool isTransparent = plainColor && current.A == 0;
+            bool isBlack = plainColor && current.ToArgb() == Color.Black.ToArgb();
+            bool isWhite = plainColor && current.ToArgb() == Color.White.ToArgb();
+            // the panel's default gray is 127 and the menu's is 128
+            bool isGray = plainColor && current.A == 255 && current.R == current.G && current.G == current.B && (current.R == 127 || current.R == 128);
+            bool isOtherColor = plainColor && !isTransparent && !isBlack && !isWhite && !isGray;
+
+            // Each entry's image is a check mark space followed by its swatch, drawn as one picture, and
+            // the menu's image column is made wide enough for both. The built-in ways of showing a
+            // check don't work here: on an entry with an image it is only a faint frame, and a separate
+            // check column pushes the swatches out of the shaded strip at the menu's edge.
+            if (menuSwatchSize.IsEmpty)
+            {
+                menuSwatchSize = contextMenu.ImageScalingSize; // already scaled for the screen's DPI
+            }
+            int swatch = menuSwatchSize.Height;
+            int gap = Math.Max(2, swatch / 8);
+            Size entryImageSize = new Size(swatch + gap + swatch, swatch);
+            menu.ImageScalingSize = entryImageSize;
+
+            Func<string, Image, bool, EventHandler, ToolStripMenuItem> add = (text, image, isCurrent, onClick) =>
+            {
+                Bitmap entryImage = null;
+                if (image != null || isCurrent)
+                {
+                    entryImage = new Bitmap(entryImageSize.Width, entryImageSize.Height);
+                    using (Graphics g = Graphics.FromImage(entryImage))
                     {
-                        try
+                        if (isCurrent)
                         {
-                            sender.BackgroundImage = Clipboard.GetImage();
-                            sender.BackColor = Color.Transparent;
+                            g.SmoothingMode = SmoothingMode.AntiAlias;
+                            using (Pen pen = new Pen(menu.ForeColor, Math.Max(1.6f, swatch / 9f)))
+                            {
+                                pen.StartCap = LineCap.Round;
+                                pen.EndCap = LineCap.Round;
+                                pen.LineJoin = LineJoin.Round;
+                                g.DrawLines(pen, new PointF[]
+                                {
+                                    new PointF(swatch * 0.20f, swatch * 0.52f),
+                                    new PointF(swatch * 0.42f, swatch * 0.74f),
+                                    new PointF(swatch * 0.82f, swatch * 0.26f)
+                                });
+                            }
                         }
-                        catch { }
-                    });
-                    if (Clipboard.ContainsImage())
+
+                        if (image != null)
+                        {
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                            g.DrawImage(image, swatch + gap, 0, swatch, swatch);
+                        }
+                    }
+                }
+
+                ToolStripMenuItem item = new ToolStripMenuItem(text, entryImage, onClick);
+                item.ForeColor = menu.ForeColor; // a themed menu's color isn't inherited
+
+                // A submenu's image size is reset to the default when it opens on a high-DPI screen,
+                // which would squeeze the picture into a square, so don't depend on it.
+                item.ImageScaling = ToolStripItemImageScaling.None;
+                menu.Items.Add(item);
+                return item;
+            };
+
+            // last time's entries and their pictures; disposing an entry removes it, hence the copy
+            foreach (ToolStripItem old in new System.Collections.ArrayList(menu.Items))
+            {
+                Image oldImage = old.Image;
+                old.Dispose();
+                if (oldImage != null)
+                {
+                    oldImage.Dispose();
+                }
+            }
+            menu.Items.Clear();
+
+            // for a swatch that isn't needed once it has been drawn into the entry's picture
+            Action<string, Image, bool, EventHandler> addSwatch = (text, swatchImage, isCurrent, onClick) =>
+            {
+                using (swatchImage)
+                {
+                    add(text, swatchImage, isCurrent, onClick);
+                }
+            };
+
+            Func<Color, Image> plain = color =>
+            {
+                Bitmap swatchImage = new Bitmap(16, 16);
+                using (Graphics g = Graphics.FromImage(swatchImage))
+                {
+                    g.Clear(color);
+                }
+                return swatchImage;
+            };
+
+            {
+                if (onCanvas)
+                    addSwatch("Transparent", CreateCheckerboardTile(1f), isTransparent, (s, e) => setColor(Color.Transparent));
+
+                addSwatch("Black", plain(Color.Black), isBlack, (s, e) => setColor(Color.Black));
+                addSwatch("White", plain(Color.White), isWhite, (s, e) => setColor(Color.White));
+                addSwatch("Gray", plain(Color.FromArgb(127, 127, 127)), isGray, (s, e) => setColor(Color.Gray));
+
+                addSwatch("Other color...", new Bitmap(typeof(Liquify),"images.colorwheel.png"), isOtherColor, (s, e) =>
+                {
+                    // The picker's color is shown as it changes. That is only a preview: whatever the
+                    // background was (which may be an image or a layer) is put back when the picker
+                    // closes, and the color is then applied for real if it was accepted.
+                    Color colorBefore = onCanvas ? canvasBackColor : this.BackColor;
+                    Image imageBefore = canvasBackgroundImage;
+
+                    Action<Color> preview = color =>
                     {
-                        using (Surface fromcb = Surface.CopyFromBitmap((Bitmap)Clipboard.GetImage()))
+                        if (onCanvas)
                         {
-                            sfc.FitSurface(ResamplingAlgorithm.SuperSampling, fromcb);
-                            contextMenu.Items[7].Image = new Bitmap(sfc.CreateAliasedBitmap());
+                            canvasBackgroundImage = null;
+                            previewingBackColor = true;
+                            canvasBackColor = color;
                         }
+                        else
+                        {
+                            this.BackColor = color;
+                        }
+                        this.Invalidate();
+                    };
+
+                    ColorBgra c;
+                    DialogResult result = ShowColorPicker(colorBefore, onCanvas, preview, out c);
+
+                    if (onCanvas)
+                    {
+                        canvasBackgroundImage = imageBefore;
+                        previewingBackColor = false;
+                        canvasBackColor = colorBefore;
                     }
                     else
                     {
-                        contextMenu.Items[7].Enabled = false;
+                        this.BackColor = colorBefore;
+                    }
+
+                    if (result == DialogResult.OK)
+                    {
+                        setColor(c.ToColor());
+                    }
+                    else
+                    {
+                        this.Invalidate();
+                    }
+                });
+
+                if (onCanvas)
+                {
+                    Image clipboardSwatch = GetClipboardSwatch();
+
+                    ToolStripMenuItem fromClipboard = add("From clipboard", clipboardSwatch, canvasBackgroundImage != null, (s, e) =>
+                    {
+                        try
+                        {
+                            SetBackgroundImage(ReadClipboardImage());
+                            BackgroundSurface = null;
+                            canvasBackColor = Color.Transparent;
+                            this.Invalidate();
+                        }
+                        catch { }
+                    });
+                    fromClipboard.Enabled = clipboardSwatch != null;
+
+                    // whatever else the owner offers, such as the layers under the one being edited
+                    foreach (CanvasBackgroundOption option in backgroundOptions)
+                    {
+                        CanvasBackgroundOption chosen = option;
+
+                        Image preview = null;
+                        if (chosen.Enabled && chosen.GetPreview != null)
+                        {
+                            // a missing picture shouldn't cost the user the menu
+                            try { preview = chosen.GetPreview(); } catch { }
+                        }
+
+                        ToolStripMenuItem item = add(chosen.Name, preview, ActiveBackgroundOption == chosen, (s, e) => SelectBackgroundOption(chosen));
+                        item.Enabled = chosen.Enabled;
                     }
                 }
             }
-            contextMenu.Show(sender, location);
         }
 
-        private DialogResult ShowColorPicker(Control owner, Point location, bool alpha, out ColorBgra color)
+        /// <summary>
+        /// The entry from BackgroundOptions whose surface is the current background, if any.
+        /// </summary>
+        public CanvasBackgroundOption ActiveBackgroundOption
+        {
+            get { return backgroundSurface != null ? activeBackgroundOption : null; }
+        }
+
+        /// <summary>
+        /// Makes one of the BackgroundOptions the background, as picking it from the menu does.
+        /// </summary>
+        public void SelectBackgroundOption(CanvasBackgroundOption option)
+        {
+            if (option == null || !option.Enabled)
+            {
+                return;
+            }
+
+            Cursor previous = Cursor.Current;
+            Cursor.Current = Cursors.WaitCursor;
+            try
+            {
+                BackgroundSurface = option.GetSurface();
+                activeBackgroundOption = option;
+            }
+            finally
+            {
+                Cursor.Current = previous;
+            }
+        }
+
+        private DialogResult ShowColorPicker(Color current, bool alpha, Action<Color> preview, out ColorBgra color)
         {
             using (ColorDialog cd = new ColorDialog(alpha))
             {
-                cd.Color = ColorBgra.FromColor(owner.BackColor);
+                // the wheel doesn't change alpha, so a fully transparent color would stay invisible
+                ColorBgra start = ColorBgra.FromColor(current);
+                if (start.A == 0)
+                {
+                    start.A = 255;
+                }
+                cd.Color = start;
 
-                DialogResult result = cd.ShowDialog(owner);
+                // from here on, so that merely opening the picker changes nothing
+                cd.ColorChanged += (s, e) => preview(cd.Color.ToColor());
+
+                DialogResult result = cd.ShowDialog(this);
                 color = cd.Color;
                 return result;
             }
@@ -395,53 +2018,108 @@ namespace pyrochild.effects.common
 
         private void CanvasPanel_MouseMove(object sender, MouseEventArgs e)
         {
-            OnCanvasMouseMove(e.Button, e.X - canvas.Location.X, e.Y - canvas.Location.Y);
+            if (panning)
+            {
+                ContinuePan();
+                return;
+            }
+
+            // While a button we were told went down is still down as far as we know, report that one:
+            // a move that comes from a second pointing device doesn't carry the first one's buttons.
+            MouseButtons button = buttons != MouseButtons.None ? buttons : e.Button;
+
+            Rectangle canvasBounds = CanvasBounds;
+            canvashasmouse = canvasBounds.Contains(e.Location);
+            OnCanvasMouseMove(button, e.X - canvasBounds.X, e.Y - canvasBounds.Y);
         }
 
         private void CanvasPanel_MouseUp(object sender, MouseEventArgs e)
         {
-            OnCanvasMouseUp(e.Button, e.X - canvas.Location.X, e.Y - canvas.Location.Y);
+            // an eraser stroke was started as the left button, so that is the one it ends with
+            DeferRelease(strokeEraser ? MouseButtons.Left : e.Button, e.Location);
         }
 
         private void CanvasPanel_MouseLeave(object sender, System.EventArgs e)
         {
-            panelhasmouse = false;
             InvalidateBrush();
+            panelhasmouse = false;
+            canvashasmouse = false;
+        }
+
+        // The brush circle normally follows the mouse, so it can't be seen while the mouse is on
+        // the controls that change it. ShowBrushPreview draws it in the middle of the view for a
+        // moment instead.
+        private bool brushPreview;
+        private Timer brushPreviewTimer;
+
+        /// <summary>
+        /// Shows the brush circle in the middle of the view for a moment, if the mouse isn't over
+        /// the panel. For when the brush is being changed from somewhere else.
+        /// </summary>
+        public void ShowBrushPreview()
+        {
+            if (panelhasmouse || !IsHandleCreated)
+            {
+                return;
+            }
+
+            if (brushPreviewTimer == null)
+            {
+                brushPreviewTimer = new Timer(components);
+                brushPreviewTimer.Interval = 1500;
+                brushPreviewTimer.Tick += (s, e) => EndBrushPreview();
+            }
+
+            Point location = CanvasLocation;
+            InvalidateBrush();
+            canvasmouselocation = new PointF(this.ClientSize.Width / 2 - location.X, this.ClientSize.Height / 2 - location.Y);
+            brushPreview = true;
+            InvalidateBrush();
+
+            brushPreviewTimer.Stop();
+            brushPreviewTimer.Start();
+        }
+
+        private void EndBrushPreview()
+        {
+            if (brushPreview)
+            {
+                brushPreviewTimer.Stop();
+                InvalidateBrush();
+                brushPreview = false;
+            }
         }
 
         private void InvalidateBrush()
         {
-            int scaledbrushradius = (int)(brushRadius * scale);
+            Point location = CanvasLocation;
+            int scaledbrushradius = ScaledBrushRadius;
             this.Invalidate(new Rectangle(
-                (int)canvasmouselocation.X - scaledbrushradius + canvas.Location.X - 2,
-                (int)canvasmouselocation.Y - scaledbrushradius + canvas.Location.Y - 2,
+                (int)canvasmouselocation.X - scaledbrushradius + location.X - 2,
+                (int)canvasmouselocation.Y - scaledbrushradius + location.Y - 2,
                 2 * scaledbrushradius + 5,
-                2 * scaledbrushradius + 5), true);
+                2 * scaledbrushradius + 5));
         }
 
         private void CanvasPanel_MouseEnter(object sender, System.EventArgs e)
         {
+            EndBrushPreview();
             panelhasmouse = true;
+
+            // a key release can be missed while another window has focus, so check the real state
+            SetSpaceHeld(GetKeyState(VK_SPACE) < 0);
         }
 
         private void CanvasPanel_Resize(object sender, System.EventArgs e)
         {
-            PerformLayout();
-            // If the client area is bigger than the area used to display the image, center it
-            int newX = 10 + AutoScrollPosition.X;
-            int newY = 10 + AutoScrollPosition.Y;
-
-            if (this.ClientRectangle.Width > canvas.Width + 20)
+            if (zoomedToFit)
             {
-                newX = AutoScrollPosition.X + ((this.ClientRectangle.Width - canvas.Width) / 2);
+                ZoomToFit();
             }
 
-            if (this.ClientRectangle.Height > canvas.Height + 20)
-            {
-                newY = AutoScrollPosition.Y + ((this.ClientRectangle.Height - canvas.Height) / 2);
-            }
-
-            canvas.Location = new Point(newX, newY);
+            // the canvas is centered when it fits, so it may have moved
+            UpdateScrollbars();
+            this.Invalidate();
         }
 
         public event EventHandler<CanvasMouseEventArgs> CanvasMouseDown;
@@ -449,8 +2127,9 @@ namespace pyrochild.effects.common
         {
             holdTimer.Enabled = true;
             buttons = button;
+            strokeFromPen = penInContact;
             if (CanvasMouseDown != null)
-                CanvasMouseDown(this, new CanvasMouseEventArgs(button, x / scale, y / scale));
+                CanvasMouseDown(this, new CanvasMouseEventArgs(button, x / scale, y / scale, StrokePressure, strokeEraser));
         }
 
         public event EventHandler<CanvasMouseEventArgs> CanvasMouseMove;
@@ -460,7 +2139,7 @@ namespace pyrochild.effects.common
             canvasmouselocation = new PointF(x, y);
             InvalidateBrush();
             if (CanvasMouseMove != null)
-                CanvasMouseMove(this, new CanvasMouseEventArgs(button, x / scale, y / scale));
+                CanvasMouseMove(this, new CanvasMouseEventArgs(button, x / scale, y / scale, StrokePressure, strokeEraser));
         }
 
         public event EventHandler<CanvasMouseEventArgs> CanvasMouseUp;
@@ -469,14 +2148,16 @@ namespace pyrochild.effects.common
             holdTimer.Enabled = false;
             buttons = MouseButtons.None;
             if (CanvasMouseUp != null)
-                CanvasMouseUp(this, new CanvasMouseEventArgs(button, x / scale, y / scale));
+                CanvasMouseUp(this, new CanvasMouseEventArgs(button, x / scale, y / scale, StrokePressure, strokeEraser));
+            strokeFromPen = false;
+            strokeEraser = false;
         }
 
         public event EventHandler<CanvasMouseEventArgs> CanvasMouseHold;
         private void OnCanvasMouseHold(MouseButtons button, float x, float y)
         {
             if (CanvasMouseHold != null)
-                CanvasMouseHold(this, new CanvasMouseEventArgs(button, x / scale, y / scale));
+                CanvasMouseHold(this, new CanvasMouseEventArgs(button, x / scale, y / scale, StrokePressure, strokeEraser));
         }
 
         public event EventHandler ZoomFactorChanged;
@@ -486,26 +2167,30 @@ namespace pyrochild.effects.common
                 ZoomFactorChanged(this, EventArgs.Empty);
         }
 
+        // The next level down or up from wherever the zoom is, which after ZoomToFit is usually
+        // between two levels.
         public void ZoomOut()
         {
-            if (scale > ZoomFactors[0])
-                for (int i = 1; i < ZoomFactors.Length; ++i)
-                    if (scale == ZoomFactors[i])
-                    {
-                        ZoomFactor = ZoomFactors[i - 1];
-                        break;
-                    }
+            for (int i = ZoomFactors.Length - 1; i >= 0; --i)
+            {
+                if (ZoomFactors[i] < scale * 0.999f)
+                {
+                    ZoomFactor = ZoomFactors[i];
+                    break;
+                }
+            }
         }
 
         public void ZoomIn()
         {
-            if (scale < ZoomFactors[ZoomFactors.Length - 1])
-                for (int i = 0; i < ZoomFactors.Length - 1; ++i)
-                    if (scale == ZoomFactors[i])
-                    {
-                        ZoomFactor = ZoomFactors[i + 1];
-                        break;
-                    }
+            for (int i = 0; i < ZoomFactors.Length; ++i)
+            {
+                if (ZoomFactors[i] > scale * 1.001f)
+                {
+                    ZoomFactor = ZoomFactors[i];
+                    break;
+                }
+            }
         }
 
         public void PerformMouseWheel(MouseEventArgs e)
@@ -523,33 +2208,27 @@ namespace pyrochild.effects.common
                     ZoomOut();
                 }
 
+                // zooming can move the canvas, so find where the mouse is on it now
+                SyncBrushToMouse();
+
                 if (canvashasmouse) //try to keep the mouse over the same virtual location on the document
                     SetScrollLocation(documentmouselocation);
             }
             else if ((ModifierKeys & Keys.Shift) != Keys.None)
             {
-                if (e.Delta > 0)
-                {
-                    HorizontalScroll.Value -= Math.Min(HorizontalScroll.Value - HorizontalScroll.Minimum, e.Delta);
-                }
-                else
-                {
-                    HorizontalScroll.Value -= Math.Max(HorizontalScroll.Value - HorizontalScroll.Maximum, e.Delta);
-                }
-                PerformLayout();
+                ScrollBy(-e.Delta, 0);
             }
             else
             {
-                if (e.Delta > 0)
-                {
-                    VerticalScroll.Value -= Math.Min(VerticalScroll.Value - VerticalScroll.Minimum, e.Delta);
-                }
-                else
-                {
-                    VerticalScroll.Value -= Math.Max(VerticalScroll.Value - VerticalScroll.Maximum, e.Delta);
-                }
-                PerformLayout();
+                ScrollBy(0, -e.Delta);
             }
+
+            AfterScroll(false);
+        }
+
+        private void ScrollBy(int dx, int dy)
+        {
+            ScrollPosition = new Point(scrollOffset.X + dx, scrollOffset.Y + dy);
         }
 
         private void SetScrollLocation(PointF documentmouselocation)
@@ -558,23 +2237,7 @@ namespace pyrochild.effects.common
             int dx = (int)(canvasmouselocation.X - desiredcanvasmouselocation.X);
             int dy = (int)(canvasmouselocation.Y - desiredcanvasmouselocation.Y);
 
-            if (dx > 0)
-            {
-                HorizontalScroll.Value -= Math.Min(HorizontalScroll.Value - HorizontalScroll.Minimum, dx);
-            }
-            else
-            {
-                HorizontalScroll.Value -= Math.Max(HorizontalScroll.Value - HorizontalScroll.Maximum, dx);
-            }
-            if (dy > 0)
-            {
-                VerticalScroll.Value -= Math.Min(VerticalScroll.Value - VerticalScroll.Minimum, dy);
-            }
-            else
-            {
-                VerticalScroll.Value -= Math.Max(VerticalScroll.Value - VerticalScroll.Maximum, dy);
-            }
-            PerformLayout();
+            ScrollBy(-dx, -dy);
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
@@ -584,65 +2247,5 @@ namespace pyrochild.effects.common
 
             //the owner is responsible for calling PerformMouseWheel()
         }
-    }
-
-    class PictureBoxEx : Control
-    {
-        Brush checkerbrush;
-
-        public PictureBoxEx()
-        {
-            base.SetStyle(ControlStyles.Selectable | ControlStyles.Opaque, false);
-            base.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer|ControlStyles.SupportsTransparentBackColor, true);
-            this.TabStop = false;
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (checkerbrush != null)
-                checkerbrush.Dispose();
-
-            base.Dispose(disposing);
-        }
-
-        protected override void OnPaint(PaintEventArgs pe)
-        {
-            pe.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
-            pe.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-
-            if (BackColor.A != 255)
-            {
-                if (checkerbrush == null)
-                {
-                    checkerbrush = new TextureBrush(CanvasPanel.CreateCheckerboardTile(this.DeviceDpi / 96f), WrapMode.Tile);
-                }
-
-                pe.Graphics.FillRectangle(checkerbrush, pe.ClipRectangle);
-            }
-            if (BackColor != Color.Transparent)
-            {
-                using (Brush b = new SolidBrush(BackColor))
-                {
-                    pe.Graphics.FillRectangle(b, pe.ClipRectangle);
-                }
-            }
-            if (BackgroundImage != null)
-            {
-                pe.Graphics.DrawImage(BackgroundImage, ClientRectangle);
-            }
-            if (Image != null)
-            {
-                pe.Graphics.DrawImage(Image, ClientRectangle);
-            }
-
-            base.OnPaint(pe);
-        }
-
-        protected override void OnPaintBackground(PaintEventArgs pe)
-        {
-            //base.OnPaintBackground(pe); Nope!
-        }
-
-        public Bitmap Image { get; set; }
     }
 }

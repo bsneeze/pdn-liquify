@@ -7,6 +7,10 @@
 //// .                                                                           //
 ///////////////////////////////////////////////////////////////////////////////////
 
+// This file comes from the Paint.NET source code and has been modified for this plugin.
+// Modifications Copyright (C) Zach Walker. The Paint.NET license that the notice above
+// refers to is reproduced in the LICENSE file at the root of this repository.
+
 using System;
 using System.IO;
 using System.IO.Compression;
@@ -18,9 +22,12 @@ using System.Threading;
 namespace pyrochild.effects.liquify
 {
     public sealed class DiskBackedSurface
-        : IDisposable,
-          ICloneable
+        : IDisposable
     {
+        // The file is made when the data is first written and kept open from then on. It is
+        // marked delete-on-close, so Windows removes it when this is disposed and also when the
+        // process ends any other way, a crash included.
+        private FileStream file;
         private string backingfile;
         private State state;
         private DisplacementMesh surface;
@@ -31,8 +38,32 @@ namespace pyrochild.effects.liquify
         {
             width = surface.Width;
             height = surface.Height;
-            backingfile = Path.GetTempFileName();
             state = State.Memory;
+        }
+
+        private void Write(Action<Stream> save)
+        {
+            backingfile = Path.Combine(Path.GetTempPath(), "Liquify-" + Guid.NewGuid().ToString("N") + ".tmp");
+            file = new FileStream(backingfile, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
+
+            try
+            {
+                // most of a mesh is zeros or smooth, so even the fastest compression shrinks it a lot
+                using (DeflateStream ds = new DeflateStream(file, CompressionLevel.Fastest, true))
+                {
+                    FailIfTesting();
+                    save(ds);
+                }
+
+                // so a full disk shows up now and not when the data is wanted back
+                file.Flush();
+            }
+            catch
+            {
+                file.Dispose();
+                file = null;
+                throw;
+            }
         }
 
         public DiskBackedSurface(int width, int height)
@@ -60,6 +91,61 @@ namespace pyrochild.effects.liquify
             Initialize();
         }
 
+        private DiskBackedSurface()
+        {
+        }
+
+        /// <summary>
+        /// For trying out what happens when the disk can't be written to (full, say): while set,
+        /// every write made from this thread fails the way a real one would, without needing a
+        /// full disk. It is per thread so that one test can't trip up another.
+        /// </summary>
+        [ThreadStatic]
+        internal static bool TestFailWritesOnThisThread;
+
+        private static void FailIfTesting()
+        {
+            if (TestFailWritesOnThisThread)
+            {
+                throw new IOException("There is not enough space on the disk. (Simulated for testing.)");
+            }
+        }
+
+        /// <summary>
+        /// Writes a part of a mesh straight to disk, without making an in-memory copy of it first.
+        /// </summary>
+        public static DiskBackedSurface FromRect(DisplacementMesh mesh, Rectangle rect)
+        {
+            DiskBackedSurface ret = new DiskBackedSurface();
+            ret.width = rect.Width;
+            ret.height = rect.Height;
+            ret.Write(stream => mesh.SaveRaw(stream, rect));
+            ret.state = State.Disk;
+            return ret;
+        }
+
+        /// <summary>
+        /// Writes several small pieces of mesh straight to disk as one surface: a column of
+        /// squares, slotSize on a side, with piece number i at the top left of square number i.
+        /// </summary>
+        /// <param name="sources">the mesh each piece is taken from</param>
+        /// <param name="rects">where in its mesh each piece is; none larger than a square</param>
+        public static DiskBackedSurface FromPieces(DisplacementMesh[] sources, Rectangle[] rects, int slotSize)
+        {
+            DiskBackedSurface ret = new DiskBackedSurface();
+            ret.width = slotSize;
+            ret.height = checked(slotSize * rects.Length);
+            ret.Write(stream =>
+            {
+                for (int i = 0; i < rects.Length; ++i)
+                {
+                    sources[i].SaveRawPadded(stream, rects[i], slotSize, slotSize);
+                }
+            });
+            ret.state = State.Disk;
+            return ret;
+        }
+
         public string BackingFilePath { get { return backingfile; } }
         public DisplacementMesh Surface { get { return surface; } }
         public int Width { get { return width; } }
@@ -72,78 +158,52 @@ namespace pyrochild.effects.liquify
         {
             if (state == State.Memory) { return; }
 
-            FileStream fs = new FileStream(backingfile, FileMode.Open, FileAccess.Read);
-            try
+            file.Seek(0, SeekOrigin.Begin);
+            using (DeflateStream ds = new DeflateStream(file, CompressionMode.Decompress, true))
             {
                 DisplacementMesh loaded = new DisplacementMesh(width, height);
-                loaded.Load(fs);
+                try
+                {
+                    loaded.LoadRaw(ds);
+                }
+                catch
+                {
+                    loaded.Dispose();
+                    throw;
+                }
                 surface = loaded;
                 state = State.Memory;
             }
-            catch (ThreadAbortException) { }
-            finally
-            {
-                fs.Close();
-            }
-        }
-
-        public bool TryToMemory()
-        {
-            try
-            {
-                ToMemory();
-                return true;
-            }
-            catch { return false; }
         }
 
         public void ToDisk()
         {
             if (state == State.Disk) { return; }
 
-            FileStream fs = new FileStream(backingfile, FileMode.Create);
-            try
+            // the surface isn't modified once it has been written, so the file only needs writing once
+            if (file == null)
             {
-                surface.Save(fs);
-                state = State.Disk;
+                Write(stream => surface.SaveRaw(stream));
             }
-            catch (ThreadAbortException) { }
-            finally
-            {
-                fs.Close();
-                surface.Dispose();
-            }
-        }
 
-        public bool TryToDisk()
-        {
-            try
-            {
-                ToDisk();
-                return true;
-            }
-            catch { return false; }
+            surface.Dispose();
+            state = State.Disk;
         }
 
         #region IDisposable Members
 
         public void Dispose()
         {
-            File.Delete(backingfile);
-            surface.Dispose();
+            if (file != null)
+            {
+                file.Dispose();
+                file = null;
+            }
+            if (surface != null)
+            {
+                surface.Dispose();
+            }
             state = State.Disposed;
-        }
-
-        #endregion
-
-        #region ICloneable Members
-
-        public object Clone()
-        {
-            DiskBackedSurface retval = new DiskBackedSurface(this.surface, true);
-            retval.state = this.state;
-            retval.backingfile = this.backingfile;
-            return retval;
         }
 
         #endregion

@@ -6,6 +6,13 @@
     <RootNamespace>pyrochild.effects.liquify</RootNamespace>
     <AssemblyName>Liquify</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Debug builds are optimized too. The mesh and canvas loops are several times slower without it,
+         which makes the "BETA" build feel much worse than what ships. Set to false to step through code. -->
+    <Optimize>true</Optimize>
+
+    <!-- Where Paint.NET is installed. Override with -p:PdnDir=...\ (keep the trailing backslash). -->
+    <PdnDir Condition="'$(PdnDir)' == ''">C:\Program Files\Paint.NET\</PdnDir>
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
     <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
 
@@ -22,40 +29,45 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- lets the test project use internal types such as LiquifyRenderer -->
+    <InternalsVisibleTo Include="Liquify.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="PaintDotNet.Base">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Base.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Base.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Core">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Core.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Core.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Data">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Data.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Data.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Effects">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Effects.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Effects.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Effects.Core">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Effects.Core.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Effects.Core.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Primitives">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Primitives.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Primitives.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.ComponentModel">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.ComponentModel.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.ComponentModel.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.ObjectModel">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.ObjectModel.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.ObjectModel.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="PaintDotNet.Windows">
-      <HintPath>C:\Program Files\Paint.NET\PaintDotNet.Windows.dll</HintPath>
+      <HintPath>$(PdnDir)PaintDotNet.Windows.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
@@ -75,10 +87,7 @@
   <ItemGroup>
     <EmbeddedResource Include="images\icon.png" />
     <EmbeddedResource Include="images\bloat.png" />
-    <EmbeddedResource Include="images\donate.png" />
     <EmbeddedResource Include="images\freeze.png" />
-    <EmbeddedResource Include="images\gridlarge.png" />
-    <EmbeddedResource Include="images\gridsmall.png" />
     <EmbeddedResource Include="images\pucker.png" />
     <EmbeddedResource Include="images\push.png" />
     <EmbeddedResource Include="images\redo.png" />
@@ -94,14 +103,11 @@
     <EmbeddedResource Include="images\plus.png" />
     <EmbeddedResource Include="images\reconstruct.png" />
     <EmbeddedResource Include="images\colorwheel.png" />
+    <EmbeddedResource Include="images\clearmask.png" />
+    <EmbeddedResource Include="images\invertmask.png" />
+    <EmbeddedResource Include="images\resetall.png" />
   </ItemGroup>
 
-  <Target Name="LiquifyRenameLockedOutput" BeforeTargets="CoreCompile">
-    <PropertyGroup>
-      <LiquifyLockedStamp>$([System.DateTime]::Now.ToString("yyyyMMddHHmmss"))</LiquifyLockedStamp>
-    </PropertyGroup>
-    <Move SourceFiles="$(TargetPath)" DestinationFiles="$(TargetPath).$(LiquifyLockedStamp).locked" Condition="Exists('$(TargetPath)')" ContinueOnError="true" />
-  </Target>
 
   <PropertyGroup>
     <LiquifyEffectsDir>$(USERPROFILE)\Documents\paint.net App Files\Effects\</LiquifyEffectsDir>

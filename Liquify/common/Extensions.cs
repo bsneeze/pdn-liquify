@@ -13,28 +13,28 @@ namespace pyrochild.effects.common
     {
         public static PdnRegion GetOutline(this PdnRegion region, RectangleF bounds, float scalefactor)
         {
-            GraphicsPath path = new GraphicsPath();
-
-            PdnRegion region2 = region.Clone();
-
-            Matrix scalematrix = new Matrix(
+            using (GraphicsPath path = new GraphicsPath())
+            using (PdnRegion region2 = region.Clone())
+            using (Matrix scalematrix = new Matrix(
                 bounds,
                 new PointF[]{
                     new PointF(bounds.Left, bounds.Top),
                     new PointF(bounds.Right*scalefactor, bounds.Top),
                     new PointF(bounds.Left, bounds.Bottom*scalefactor)
-                });
-            region2.Transform(scalematrix);
-
-            foreach (RectangleF rect in region2.GetRegionScans())
+                }))
             {
-                path.AddRectangle(RectangleF.Inflate(rect, 1, 1));
+                region2.Transform(scalematrix);
+
+                foreach (RectangleF rect in region2.GetRegionScans())
+                {
+                    path.AddRectangle(RectangleF.Inflate(rect, 1, 1));
+                }
+
+                PdnRegion retval = new PdnRegion(path);
+                retval.Exclude(region2);
+
+                return retval;
             }
-
-            PdnRegion retval = new PdnRegion(path);
-            retval.Exclude(region2);
-
-            return retval;
         }
 
         public static Size Factor(this Size me, float f)
@@ -66,13 +66,6 @@ namespace pyrochild.effects.common
         public static string ToString(this byte[] bytes, Encoding encoding)
         {
             return ToString(bytes, encoding, 0, bytes.Length);
-        }
-
-        public static byte ClampToByte(this float val)
-        {
-            if (val < 0) return 0;
-            if (val > 255) return 255;
-            return (byte)val;
         }
 
         public static ColorBgra ToColorBgra(this ColorHsv96Float color)

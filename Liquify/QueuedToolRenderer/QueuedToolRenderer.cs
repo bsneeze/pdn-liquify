@@ -59,33 +59,53 @@ namespace pyrochild.effects.common
 
         public void AddEvent(QueuedToolEventArgs args)
         {
+            if (disposed)
+            {
+                return;
+            }
+
             lock (eventQueue)
             {
                 eventQueue.Enqueue(args);
+                OnEventQueued();
             }
-            OnEventQueued();
         }
 
         public void AddEvents(IEnumerable<QueuedToolEventArgs> args)
         {
+            if (disposed)
+            {
+                return;
+            }
+
             lock (eventQueue)
             {
                 foreach(QueuedToolEventArgs arg in args)
                 eventQueue.Enqueue(arg);
+                OnEventQueued();
             }
-            OnEventQueued();
         }
 
+        // Called with the queue locked. One render thread serves the renderer's whole life,
+        // sleeping on the queue between events.
         private void OnEventQueued()
         {
-            if (renderThread == null || !renderThread.IsAlive)
+            if (renderThread == null)
             {
                 renderThread = new Thread(new ThreadStart(Render));
+
+                // so a hung render can't keep the program from exiting
+                renderThread.IsBackground = true;
                 renderThread.Start();
             }
+
+            Monitor.Pulse(eventQueue);
         }
 
-        bool aborted = false;
+        // set under the queue lock: the render thread exits once the queue is empty
+        bool stopping = false;
+
+        volatile bool aborted = false;
         public void Abort()
         {
             aborted = true;
@@ -93,8 +113,8 @@ namespace pyrochild.effects.common
             {
                 eventQueue.Clear();
                 eventQueue.Enqueue(new QueuedToolAbortEventArgs());
+                OnEventQueued();
             }
-            OnEventQueued();
         }
 
         public bool IsAborted { get { return aborted; } }
@@ -110,45 +130,97 @@ namespace pyrochild.effects.common
         private void Render()
         {
             bool didsomething = false;
-            while (GetQueueSize() > 0)
+            while (true)
             {
-                didsomething = true;
                 QueuedToolEventArgs args;
+                bool emptied = false;
                 lock (eventQueue)
                 {
-                    args = eventQueue.Dequeue();
-                }
-                if (args != null)
-                {
-                    switch (args.EventType)
+                    while (eventQueue.Count == 0 && !didsomething && !stopping)
                     {
-                        case QueuedToolEventType.MouseDown:
-                            QueuedMouseDown(args);
-                            break;
-                        case QueuedToolEventType.MouseMove:
-                            QueuedMouseMove(args);
-                            break;
-                        case QueuedToolEventType.MouseUp:
-                            QueuedMouseUp(args);
-                            break;
-                        case QueuedToolEventType.Abort:
-                            QueuedAbort();
-                            break;
-                        case QueuedToolEventType.MouseHold:
-                            QueuedMouseHold(args);
-                            break;
-                        case QueuedToolEventType.Custom:
-                            QueuedCustomEvent(args);
-                            break;
-                        default:
-                            throw new ArgumentException("invalid event in queue");
+                        Monitor.Wait(eventQueue);
+                    }
+
+                    if (eventQueue.Count == 0)
+                    {
+                        if (!didsomething)
+                        {
+                            return; // stopping
+                        }
+                        emptied = true;
+                        args = null;
+                    }
+                    else
+                    {
+                        args = eventQueue.Dequeue();
+                    }
+
+                    // when the queue is backed up, skip mouse moves that a later one makes redundant
+                    while (args != null
+                        && args.EventType == QueuedToolEventType.MouseMove
+                        && eventQueue.Count > 0
+                        && eventQueue.Peek() != null
+                        && eventQueue.Peek().EventType == QueuedToolEventType.MouseMove
+                        && CanCoalesce(args, eventQueue.Peek()))
+                    {
+                        args = eventQueue.Dequeue();
                     }
                 }
+
+                try
+                {
+                    if (emptied)
+                    {
+                        didsomething = false;
+                        OnQueueEmptied();
+                        continue;
+                    }
+
+                    didsomething = true;
+                    if (args != null)
+                    {
+                        Process(args);
+                    }
+                }
+                catch (Exception ex) when (Error != null)
+                {
+                    // An exception leaving this thread would take the host down. Carry on with the
+                    // next event: the mouse-up that ends a stroke must still get through.
+                    Error(this, new ThreadExceptionEventArgs(ex));
+                }
             }
-            if (didsomething)
+        }
+
+        /// <summary>
+        /// Raised on the render thread when handling an event throws. With no subscribers the
+        /// exception is left unhandled.
+        /// </summary>
+        public event ThreadExceptionEventHandler Error;
+
+        private void Process(QueuedToolEventArgs args)
+        {
+            switch (args.EventType)
             {
-                OnQueueEmptied();
-                didsomething = false;
+                case QueuedToolEventType.MouseDown:
+                    QueuedMouseDown(args);
+                    break;
+                case QueuedToolEventType.MouseMove:
+                    QueuedMouseMove(args);
+                    break;
+                case QueuedToolEventType.MouseUp:
+                    QueuedMouseUp(args);
+                    break;
+                case QueuedToolEventType.Abort:
+                    QueuedAbort();
+                    break;
+                case QueuedToolEventType.MouseHold:
+                    QueuedMouseHold(args);
+                    break;
+                case QueuedToolEventType.Custom:
+                    QueuedCustomEvent(args);
+                    break;
+                default:
+                    throw new ArgumentException("invalid event in queue");
             }
         }
 
@@ -222,6 +294,15 @@ namespace pyrochild.effects.common
         {
         }
 
+        /// <summary>
+        /// Called on the render thread when two MouseMove events are next to each other in the queue.
+        /// Return true to drop the earlier one and go straight to the later one.
+        /// </summary>
+        protected virtual bool CanCoalesce(QueuedToolEventArgs earlier, QueuedToolEventArgs later)
+        {
+            return false;
+        }
+
         private void QueuedAbort()
         {
             lock (eventQueue)
@@ -263,10 +344,33 @@ namespace pyrochild.effects.common
         private bool disposed = false;
         public bool Disposed { get { return disposed; } }
 
+        /// <summary>
+        /// Aborts whatever is queued and waits for the render thread to finish, so after this returns
+        /// no more events are raised. Event handlers must not block on the disposing thread.
+        /// </summary>
         public void Dispose()
         {
+            if (disposed)
+            {
+                return;
+            }
+
             Abort();
             disposed = true;
+
+            Thread thread;
+            lock (eventQueue)
+            {
+                stopping = true;
+                Monitor.PulseAll(eventQueue);
+                thread = renderThread;
+            }
+
+            if (thread != null && thread != Thread.CurrentThread)
+            {
+                thread.Join();
+            }
+
             OnDispose();
         }
 

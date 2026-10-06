@@ -51,6 +51,7 @@ namespace pyrochild.effects.common
                 try
                 {
                     ColorBgra c = ColorBgra.FromOpaqueInt32(int.Parse(hex.Text, System.Globalization.NumberStyles.HexNumber));
+                    c.A = wheel.Color.A; // the hex box has no alpha digits
                     ColorHsv96Float h = c.ToHsvColor();
                     wheel.Color = c;
                     SetRgbSliders(c);
@@ -211,7 +212,18 @@ namespace pyrochild.effects.common
 
                 ResumeEvents();
             }
+
+            // every way of changing the color ends up setting the wheel's
+            if (ColorChanged != null)
+            {
+                ColorChanged(this, EventArgs.Empty);
+            }
         }
+
+        /// <summary>
+        /// Raised as the color changes while the dialog is open, so the owner can show it straight away.
+        /// </summary>
+        public event EventHandler ColorChanged;
 
         private void SetRgbSliders(ColorBgra c)
         {
