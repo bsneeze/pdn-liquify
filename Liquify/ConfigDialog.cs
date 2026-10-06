@@ -670,6 +670,14 @@ namespace pyrochild.effects.liquify
                 return true;
             }
 
+            // Enter in the size box sets the size. Left alone, it would press OK.
+            if (keyData == Keys.Enter && brushSize.Focused && !brushSize.DroppedDown)
+            {
+                ResetInvalidBrushSize();
+                canvas.Focus();
+                return true;
+            }
+
             // the same zoom shortcuts as Paint.NET's main window
             switch (keyData)
             {
