@@ -29,6 +29,9 @@ namespace pyrochild.effects.common
                 image?.Dispose();
                 image = null;
 
+                clipboardSwatch?.Dispose();
+                clipboardSwatch = null;
+
                 painter.Dispose();
             }
             base.Dispose(disposing);

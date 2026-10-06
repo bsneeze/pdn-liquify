@@ -1632,6 +1632,63 @@ namespace pyrochild.effects.common
             contextMenu.Show(this, location);
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetClipboardSequenceNumber();
+
+        private Image clipboardSwatch;        // null when the clipboard holds no image
+        private uint clipboardSwatchSequence; // which clipboard contents it was made from
+        private bool clipboardSwatchKnown;
+
+        // Tests replace these so as not to touch the real clipboard. The image can come back null
+        // even when the clipboard says it has one.
+        internal Func<uint> ClipboardSequence = GetClipboardSequenceNumber;
+        internal Func<Image> ReadClipboardImage = () => Clipboard.ContainsImage() ? Clipboard.GetImage() : null;
+
+        // The clipboard's image as a menu swatch, or null if it holds none. Reading the image copies
+        // all of it, so that is only done again when the clipboard has changed.
+        internal Image GetClipboardSwatch()
+        {
+            uint sequence = ClipboardSequence();
+            if (clipboardSwatchKnown && sequence == clipboardSwatchSequence)
+            {
+                return clipboardSwatch;
+            }
+
+            if (clipboardSwatch != null)
+            {
+                clipboardSwatch.Dispose();
+                clipboardSwatch = null;
+            }
+            clipboardSwatchKnown = false;
+
+            try
+            {
+                using (Image whole = ReadClipboardImage())
+                {
+                    if (whole != null)
+                    {
+                        Bitmap swatch = new Bitmap(16, 16);
+                        using (Graphics g = Graphics.FromImage(swatch))
+                        {
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                            g.DrawImage(whole, 0, 0, 16, 16);
+                        }
+                        clipboardSwatch = swatch;
+                    }
+                }
+
+                clipboardSwatchSequence = sequence;
+                clipboardSwatchKnown = true;
+            }
+            catch
+            {
+                // another program has the clipboard open, or the image can't be read: try again next time
+            }
+
+            return clipboardSwatch;
+        }
+
         /// <summary>
         /// Replaces a menu's entries with the background choices, the same ones as the right-click
         /// menu, so an owner can offer them somewhere easier to find. The entry that matches the
@@ -1786,15 +1843,7 @@ namespace pyrochild.effects.common
 
                 if (onCanvas)
                 {
-                    Image clipboardSwatch = null;
-                    if (Clipboard.ContainsImage())
-                    {
-                        using (Surface fromcb = Surface.CopyFromBitmap((Bitmap)Clipboard.GetImage()))
-                        {
-                            sfc.FitSurface(ResamplingAlgorithm.SuperSampling, fromcb);
-                            clipboardSwatch = new Bitmap(sfc.CreateAliasedBitmap());
-                        }
-                    }
+                    Image clipboardSwatch = GetClipboardSwatch();
 
                     ToolStripMenuItem fromClipboard = add("From clipboard", clipboardSwatch, canvasBackgroundImage != null, (s, e) =>
                     {

@@ -139,6 +139,80 @@ namespace pyrochild.effects.liquify.tests
             }
         }
 
+        [Fact]
+        public void The_clipboard_swatch_is_only_made_again_when_the_clipboard_changes()
+        {
+            TestHelpers.RunSta(() =>
+            {
+                using (CanvasPanel canvas = new CanvasPanel())
+                {
+                    uint sequence = 7;
+                    int reads = 0;
+                    Color color = Color.Red;
+
+                    canvas.ClipboardSequence = () => sequence;
+                    canvas.ReadClipboardImage = () =>
+                    {
+                        ++reads;
+                        Bitmap whole = new Bitmap(200, 120);
+                        using (Graphics g = Graphics.FromImage(whole))
+                        {
+                            g.Clear(color);
+                        }
+                        return whole;
+                    };
+
+                    Bitmap first = (Bitmap)canvas.GetClipboardSwatch();
+                    Assert.Equal(new Size(16, 16), first.Size);
+                    Assert.Equal(Color.Red.ToArgb(), first.GetPixel(8, 8).ToArgb());
+
+                    Assert.Same(first, canvas.GetClipboardSwatch());
+                    Assert.Equal(1, reads);
+
+                    sequence = 8;
+                    color = Color.Blue;
+                    Bitmap second = (Bitmap)canvas.GetClipboardSwatch();
+                    Assert.Equal(2, reads);
+                    Assert.Equal(Color.Blue.ToArgb(), second.GetPixel(8, 8).ToArgb());
+                }
+            });
+        }
+
+        [Fact]
+        public void A_clipboard_with_no_image_or_one_that_cannot_be_read_gives_no_swatch()
+        {
+            TestHelpers.RunSta(() =>
+            {
+                using (CanvasPanel canvas = new CanvasPanel())
+                {
+                    int reads = 0;
+                    canvas.ClipboardSequence = () => 1;
+
+                    // another program has the clipboard open
+                    canvas.ReadClipboardImage = () =>
+                    {
+                        ++reads;
+                        throw new System.Runtime.InteropServices.ExternalException("clipboard busy");
+                    };
+                    Assert.Null(canvas.GetClipboardSwatch());
+
+                    // a failed read isn't remembered
+                    Assert.Null(canvas.GetClipboardSwatch());
+                    Assert.Equal(2, reads);
+
+                    // no image; this answer is remembered
+                    canvas.ReadClipboardImage = () =>
+                    {
+                        ++reads;
+                        return null;
+                    };
+                    Assert.Null(canvas.GetClipboardSwatch());
+                    Assert.Null(canvas.GetClipboardSwatch());
+                    Assert.Equal(3, reads);
+                }
+            });
+        }
+
         [Theory]
         [InlineData(1f, 0, 0)]
         [InlineData(1f, 137, 91)]
