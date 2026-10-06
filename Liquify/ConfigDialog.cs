@@ -1597,26 +1597,38 @@ namespace pyrochild.effects.liquify
         // as it was.
         private void StepHistory(Func<DisplacementMesh, Rectangle> step, string done)
         {
-            Rectangle rect;
+            // reading a large step back and redrawing it takes a moment
+            Cursor previous = Cursor.Current;
+            Cursor.Current = Cursors.WaitCursor;
             try
             {
-                rect = step(mesh);
+                Rectangle rect;
+                try
+                {
+                    rect = step(mesh);
+                }
+                catch (Exception ex)
+                {
+                    Cursor.Current = previous;
+
+                    string reason = ex is OutOfMemoryException
+                        ? "there isn't enough memory. Close other programs to free some up, then try again."
+                        : "its saved data couldn't be read back from the temporary files folder.\n\n" + ex.Message;
+
+                    ConfirmDialog.Notify(this, this.Text,
+                        "That step couldn't be " + done + ": " + reason + "\n\nNothing was changed.",
+                        SystemIcons.Warning);
+                    return;
+                }
+
+                UpdateHistoryButtons();
+                RenderPreview(rect);
+                canvas.InvalidateCanvas(rect);
             }
-            catch (Exception ex)
+            finally
             {
-                string reason = ex is OutOfMemoryException
-                    ? "there isn't enough memory. Close other programs to free some up, then try again."
-                    : "its saved data couldn't be read back from the temporary files folder.\n\n" + ex.Message;
-
-                ConfirmDialog.Notify(this, this.Text,
-                    "That step couldn't be " + done + ": " + reason + "\n\nNothing was changed.",
-                    SystemIcons.Warning);
-                return;
+                Cursor.Current = previous;
             }
-
-            UpdateHistoryButtons();
-            RenderPreview(rect);
-            canvas.InvalidateCanvas(rect);
         }
 
         private void UpdateHistoryButtons()
