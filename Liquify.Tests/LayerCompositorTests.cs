@@ -206,6 +206,92 @@ namespace pyrochild.effects.liquify.tests
             }
         }
 
+        // the left 8 columns of a 12x6 surface, so the stride is more than the width
+        private static unsafe BitmapSurface LeftPart(Surface wide)
+        {
+            return new BitmapSurface((ColorBgra*)wide.Scan0.VoidStar, 8, 6, wide.Stride);
+        }
+
+        private static Surface Varied(int width, int height)
+        {
+            Surface surface = new Surface(width, height);
+            for (int y = 0; y < height; ++y)
+            {
+                for (int x = 0; x < width; ++x)
+                {
+                    surface[x, y] = ColorBgra.FromBgra((byte)(x * 20), (byte)(y * 40), (byte)(255 - x * 9), (byte)(60 + x * 10 + y * 15));
+                }
+            }
+            return surface;
+        }
+
+        [Fact]
+        public void A_layer_read_in_place_blends_the_same_as_a_copy_of_it()
+        {
+            foreach (LayerBlendMode mode in new[] { LayerBlendMode.Normal, LayerBlendMode.Multiply, LayerBlendMode.Screen })
+            {
+                using (Surface wide = Varied(12, 6))
+                using (Surface copy = new Surface(8, 6))
+                using (Surface expected = Filled(Blue))
+                using (Surface actual = Filled(Blue))
+                {
+                    for (int y = 0; y < 6; ++y)
+                    {
+                        for (int x = 0; x < 8; ++x)
+                        {
+                            copy[x, y] = wide[x, y];
+                        }
+                    }
+
+                    LayerCompositor.BlendLayer(expected, copy, mode, 0.7f);
+                    LayerCompositor.BlendLayer(actual, LeftPart(wide), mode, 0.7f);
+
+                    for (int y = 0; y < 6; ++y)
+                    {
+                        for (int x = 0; x < 8; ++x)
+                        {
+                            Assert.True(expected[x, y] == actual[x, y], mode + " at " + x + "," + y);
+                        }
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void A_blended_layer_above_keeps_its_own_copy_of_pixels_that_were_read_in_place()
+        {
+            var foreground = new System.Collections.Generic.List<pyrochild.effects.common.CanvasForegroundLayer>();
+            try
+            {
+                using (Surface wide = Varied(12, 6))
+                using (Surface original = wide.Clone())
+                {
+                    LayerCompositor.AppendForeground(foreground, LeftPart(wide), LayerBlendMode.Multiply, 1f);
+
+                    // a locked layer's pixels go away afterwards
+                    wide.Fill(Red);
+
+                    Surface kept = foreground[0].Surface;
+                    Assert.Equal(8, kept.Width);
+                    Assert.Equal(6, kept.Height);
+                    for (int y = 0; y < 6; ++y)
+                    {
+                        for (int x = 0; x < 8; ++x)
+                        {
+                            Assert.True(original[x, y] == kept[x, y], "pixel " + x + "," + y);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                foreach (var layer in foreground)
+                {
+                    layer.Surface.Dispose();
+                }
+            }
+        }
+
         [Fact]
         public void The_layer_blend_mode_is_applied()
         {

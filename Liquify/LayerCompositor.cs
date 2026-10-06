@@ -17,14 +17,32 @@ namespace pyrochild.effects.liquify
         /// with that blend mode and opacity.
         /// </summary>
         /// <param name="opacity">0 to 1</param>
-        public static unsafe void BlendLayer(Surface destination, Surface layer, LayerBlendMode blendMode, float opacity)
+        public static unsafe void BlendLayer(Surface destination, ISurface<ColorBgra> layer, LayerBlendMode blendMode, float opacity)
         {
             byte opacityByte = (byte)Math.Round(255 * Math.Clamp(opacity, 0f, 1f));
             CompositionOp op = LayerBlendModeUtil.CreateCompositionOp(blendMode, opacityByte);
 
             for (int y = 0; y < destination.Height; ++y)
             {
-                op.Apply((ColorBgra*)destination.GetPointPointer(0, y), (ColorBgra*)layer.GetPointPointer(0, y), destination.Width);
+                op.Apply((ColorBgra*)destination.GetPointPointer(0, y), RowPointer(layer, y), destination.Width);
+            }
+        }
+
+        private static unsafe ColorBgra* RowPointer(ISurface<ColorBgra> surface, int y)
+        {
+            return (ColorBgra*)((byte*)surface.Scan0 + (long)y * surface.Stride);
+        }
+
+        /// <summary>
+        /// Passes a layer's pixels to use without copying them. They are only valid until it returns.
+        /// </summary>
+        private static unsafe void ReadLayer(IEffectLayerInfo layer, SizeInt32 size, Action<ISurface<ColorBgra>> use)
+        {
+            using (IEffectInputBitmap<ColorBgra32> bitmap = layer.GetBitmapBgra32())
+            using (IBitmapLock<ColorBgra32> bitmapLock = bitmap.Lock(new RectInt32(0, 0, size.Width, size.Height)))
+            {
+                // ColorBgra32 and ColorBgra are the same four bytes
+                use(new BitmapSurface((ColorBgra*)bitmapLock.Buffer, size.Width, size.Height, bitmapLock.BufferStride));
             }
         }
 
@@ -41,23 +59,15 @@ namespace pyrochild.effects.liquify
             Surface result = new Surface(size.Width, size.Height);
             result.Fill(ColorBgra.FromBgra(0, 0, 0, 0));
 
-            using (Surface layerSurface = new Surface(size.Width, size.Height))
+            for (int i = first; i < end; ++i)
             {
-                for (int i = first; i < end; ++i)
+                IEffectLayerInfo layer = layers[i];
+                if (visibleOnly && !layer.Visible)
                 {
-                    IEffectLayerInfo layer = layers[i];
-                    if (visibleOnly && !layer.Visible)
-                    {
-                        continue;
-                    }
-
-                    using (IEffectInputBitmap<ColorBgra32> bitmap = layer.GetBitmapBgra32())
-                    {
-                        CopyToSurface(bitmap, layerSurface);
-                    }
-
-                    BlendLayer(result, layerSurface, layer.BlendMode, layer.Opacity);
+                    continue;
                 }
+
+                ReadLayer(layer, size, pixels => BlendLayer(result, pixels, layer.BlendMode, layer.Opacity));
             }
 
             return result;
@@ -73,23 +83,15 @@ namespace pyrochild.effects.liquify
             IReadOnlyList<IEffectLayerInfo> layers = document.Layers;
             List<pyrochild.effects.common.CanvasForegroundLayer> result = new List<pyrochild.effects.common.CanvasForegroundLayer>();
 
-            using (Surface layerSurface = new Surface(size.Width, size.Height))
+            for (int i = first; i < end; ++i)
             {
-                for (int i = first; i < end; ++i)
+                IEffectLayerInfo layer = layers[i];
+                if (!layer.Visible)
                 {
-                    IEffectLayerInfo layer = layers[i];
-                    if (!layer.Visible)
-                    {
-                        continue;
-                    }
-
-                    using (IEffectInputBitmap<ColorBgra32> bitmap = layer.GetBitmapBgra32())
-                    {
-                        CopyToSurface(bitmap, layerSurface);
-                    }
-
-                    AppendForeground(result, layerSurface, layer.BlendMode, layer.Opacity);
+                    continue;
                 }
+
+                ReadLayer(layer, size, pixels => AppendForeground(result, pixels, layer.BlendMode, layer.Opacity));
             }
 
             return result;
@@ -101,11 +103,19 @@ namespace pyrochild.effects.liquify
         /// of its own. Runs of normal layers don't: laid over each other first and over the image
         /// afterwards, they come out the same, so each run shares one picture.
         /// </summary>
-        public static void AppendForeground(List<pyrochild.effects.common.CanvasForegroundLayer> foreground, Surface layer, LayerBlendMode blendMode, float opacity)
+        public static unsafe void AppendForeground(List<pyrochild.effects.common.CanvasForegroundLayer> foreground, ISurface<ColorBgra> layer, LayerBlendMode blendMode, float opacity)
         {
             if (blendMode != LayerBlendMode.Normal)
             {
-                foreground.Add(new pyrochild.effects.common.CanvasForegroundLayer(layer.Clone(), CreateOp(blendMode, opacity)));
+                // a copy: the caller's pixels may not outlive this call
+                Surface copy = new Surface(layer.Width, layer.Height);
+                long rowBytes = (long)layer.Width * sizeof(ColorBgra);
+                for (int y = 0; y < layer.Height; ++y)
+                {
+                    Buffer.MemoryCopy(RowPointer(layer, y), (void*)copy.GetPointPointer(0, y), rowBytes, rowBytes);
+                }
+
+                foreground.Add(new pyrochild.effects.common.CanvasForegroundLayer(copy, CreateOp(blendMode, opacity)));
                 return;
             }
 
@@ -220,19 +230,6 @@ namespace pyrochild.effects.liquify
                 {
                     return new System.Drawing.Bitmap(aliased);
                 }
-            }
-        }
-
-        /// <summary>
-        /// Copies one of Paint.NET 5's bitmaps into a classic surface of the same size.
-        /// </summary>
-        public static unsafe void CopyToSurface(IEffectInputBitmap<ColorBgra32> bitmap, Surface surface)
-        {
-            using (IBitmapLock<ColorBgra32> bitmapLock = bitmap.Lock(new RectInt32(0, 0, surface.Width, surface.Height)))
-            {
-                RegionPtr<ColorBgra32> source = new RegionPtr<ColorBgra32>(bitmapLock.Buffer, bitmapLock.Size, bitmapLock.BufferStride);
-                RegionPtr<ColorBgra> destination = new RegionPtr<ColorBgra>(surface.GetPointPointer(0, 0), surface.Width, surface.Height, surface.Stride);
-                source.Cast<ColorBgra>().CopyTo(destination);
             }
         }
     }
