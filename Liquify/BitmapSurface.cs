@@ -4,9 +4,8 @@ using PaintDotNet.Rendering;
 namespace pyrochild.effects.liquify
 {
     /// <summary>
-    /// Lets pixels that are already in memory, such as a locked Paint.NET 5 bitmap, be read as a
-    /// surface without copying them. It doesn't own the memory: whoever does has to keep it alive
-    /// for as long as this is in use.
+    /// Pixels already in memory, such as a locked Paint.NET 5 bitmap, as a surface, without
+    /// copying them. It doesn't own the memory.
     /// </summary>
     internal sealed unsafe class BitmapSurface : ISurface<ColorBgra>
     {
@@ -26,13 +25,12 @@ namespace pyrochild.effects.liquify
 
         /// <summary>
         /// For memory that holds only one rectangle of a larger picture, such as an effect's output.
-        /// The surface is the size of the whole picture, so coordinates stay the picture's own, but
-        /// only the pixels inside rect exist: nothing outside it may be read or written.
+        /// Coordinates are the whole picture's, but only the pixels inside rect exist.
         /// </summary>
         /// <param name="rectPixels">the pixel at rect's top left</param>
         public static BitmapSurface ForRect(ColorBgra* rectPixels, System.Drawing.Rectangle rect, int stride, System.Drawing.Size pictureSize)
         {
-            // where the picture's (0, 0) would be if the rest of it were there
+            // where the picture's (0, 0) would be
             ColorBgra* origin = (ColorBgra*)((byte*)rectPixels - (long)rect.Y * stride) - rect.X;
             return new BitmapSurface(origin, pictureSize.Width, pictureSize.Height, stride);
         }
@@ -41,11 +39,13 @@ namespace pyrochild.effects.liquify
         public int Stride { get { return stride; } }
         public int Width { get { return width; } }
         public int Height { get { return height; } }
+        public System.Drawing.Size Size { get { return new System.Drawing.Size(width, height); } }
+        public System.Drawing.Rectangle Bounds { get { return new System.Drawing.Rectangle(0, 0, width, height); } }
         public bool IsDisposed { get { return false; } }
 
         public void Dispose()
         {
-            // nothing to free: the memory is someone else's
+            // the memory isn't ours to free
         }
 
         public void Render(RegionPtr<ColorBgra> dst, Point2Int32 offset)

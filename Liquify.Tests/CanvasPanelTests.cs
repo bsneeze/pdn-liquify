@@ -140,6 +140,31 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public unsafe void Pixels_that_are_not_a_Surface_can_be_shown_and_taken_away_again()
+        {
+            WithCanvas(40, 30, canvas =>
+            {
+                // part of a wider picture, so the stride is more than the width
+                using (Surface backing = TestHelpers.PositionSurface(500, 200))
+                {
+                    canvas.Surface = new BitmapSurface((ColorBgra*)backing.Scan0.VoidStar, 300, 200, backing.Stride);
+                    Application.DoEvents();
+
+                    Assert.Equal(300, canvas.Surface.Width);
+                    AssertDrawsTheImage(canvas, 300, 200);
+
+                    canvas.Surface = null;
+                }
+
+                // painting must not touch the freed pixels
+                using (Bitmap drawn = new Bitmap(canvas.Width, canvas.Height))
+                {
+                    canvas.DrawToBitmap(drawn, new Rectangle(Point.Empty, canvas.Size));
+                }
+            });
+        }
+
+        [Fact]
         public void The_clipboard_swatch_is_only_made_again_when_the_clipboard_changes()
         {
             TestHelpers.RunSta(() =>

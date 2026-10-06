@@ -29,8 +29,9 @@ namespace pyrochild.effects.liquify
                     historystack.Dispose();
                 if (surface != null)
                     surface.Dispose();
-                if (source != null)
-                    source.Dispose();
+                if (canvas != null)
+                    canvas.Surface = null; // it may be showing the source
+                UnlockSource();
             }
             base.OnDispose(disposing);
         }

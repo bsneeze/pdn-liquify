@@ -24,7 +24,7 @@ namespace pyrochild.effects.liquify
         private const char undoShortcut = (char)26;
         private const char redoShortcut = (char)25;
         private Surface surface;
-        private Surface source;
+        private BitmapSurface source;
         private SliderControl pressure, density;
         private const int minPenSize = 2;
         private const int maxPenSize = 1500;
@@ -476,7 +476,7 @@ namespace pyrochild.effects.liquify
             }
 
             comparing = compare;
-            canvas.Surface = compare ? source : surface;
+            canvas.Surface = compare ? (ISurface<ColorBgra>)source : surface;
             UpdateStatus();
         }
 
@@ -885,20 +885,38 @@ namespace pyrochild.effects.liquify
             canvas.InvalidateCanvas(e.InvalidRect);
         }
 
-        private unsafe Surface GetSourceAsClassicSurface()
+        // The layer is read in place, not copied: it stays locked while the dialog is open, and
+        // source is a view of it.
+        private IEffectInputBitmap<ColorBgra32> sourceBitmap;
+        private IBitmapLock<ColorBgra32> sourceLock;
+
+        private unsafe void LockSource()
         {
             SizeInt32 docSize = Environment.Document.Size;
-            Surface result = new Surface(docSize.Width, docSize.Height);
 
-            using (IEffectInputBitmap<ColorBgra32> srcBitmap = Environment.GetSourceBitmapBgra32())
-            using (IBitmapLock<ColorBgra32> srcLock = srcBitmap.Lock(new RectInt32(0, 0, docSize.Width, docSize.Height)))
+            sourceBitmap = Environment.GetSourceBitmapBgra32();
+            sourceLock = sourceBitmap.Lock(new RectInt32(0, 0, docSize.Width, docSize.Height));
+
+            // ColorBgra32 and ColorBgra are the same four bytes
+            source = new BitmapSurface((ColorBgra*)sourceLock.Buffer, docSize.Width, docSize.Height, sourceLock.BufferStride);
+        }
+
+        // Only after the render thread has stopped and the canvas has let go of source.
+        private void UnlockSource()
+        {
+            source = null;
+
+            if (sourceLock != null)
             {
-                RegionPtr<ColorBgra32> srcRegion32 = new RegionPtr<ColorBgra32>(srcLock.Buffer, srcLock.Size, srcLock.BufferStride);
-                RegionPtr<ColorBgra> dstRegion = new RegionPtr<ColorBgra>(result.GetPointPointer(0, 0), result.Width, result.Height, result.Stride);
-                srcRegion32.Cast<ColorBgra>().CopyTo(dstRegion);
+                sourceLock.Dispose();
+                sourceLock = null;
             }
 
-            return result;
+            if (sourceBitmap != null)
+            {
+                sourceBitmap.Dispose();
+                sourceBitmap = null;
+            }
         }
 
         private void toolRadioButton_CheckedChanged(object sender, EventArgs e)
@@ -1026,7 +1044,7 @@ namespace pyrochild.effects.liquify
             int topDelta = newCanvasTop - canvas.Top;
             canvas.Bounds = new Rectangle(canvas.Left, newCanvasTop, canvas.Width, canvas.Height - topDelta);
 
-            source = GetSourceAsClassicSurface();
+            LockSource();
             surface = new Surface(source.Size);
             canvas.Surface = surface;
 

@@ -89,7 +89,7 @@ namespace pyrochild.effects.common
     {
         private const int canvasMargin = 10;
 
-        private Surface surface;
+        private ISurface<ColorBgra> surface;
         private Bitmap image; // shares the surface's memory
         private Size canvasSize; // the image at the current zoom
         private Color canvasBackColor = Color.Transparent;
@@ -765,7 +765,7 @@ namespace pyrochild.effects.common
                 // read the surface's memory directly; locking the bitmap that wraps it isn't needed
                 // and fails if a paint is ever nested inside another
                 {
-                    IntPtr srcScan0 = surface.Scan0.Pointer;
+                    IntPtr srcScan0 = (IntPtr)surface.Scan0;
                     IntPtr dstScan0 = (IntPtr)scaledPixels;
                     int srcStride = surface.Stride;
 
@@ -785,7 +785,7 @@ namespace pyrochild.effects.common
                     {
                         foreach (CanvasForegroundLayer layer in foreground)
                         {
-                            if (layer.Surface.IsDisposed || layer.Surface.Size != surface.Size)
+                            if (layer.Surface.IsDisposed || layer.Surface.Size != SurfaceSize)
                             {
                                 foreground = null;
                                 break;
@@ -1040,12 +1040,15 @@ namespace pyrochild.effects.common
             {
                 unSelection = new PdnRegion(new Rectangle(0, 0, surface.Width, surface.Height));
                 unSelection.Exclude(selection);
-                selectionOutline = selection.GetOutline(surface.Bounds, scale);
+                selectionOutline = selection.GetOutline(new Rectangle(Point.Empty, SurfaceSize), scale);
             }
             InvalidateCanvas();
         }
 
-        public Surface Surface
+        /// <summary>
+        /// The image shown. The canvas doesn't own it: set this to null before the pixels go away.
+        /// </summary>
+        public unsafe ISurface<ColorBgra> Surface
         {
             get
             {
@@ -1054,12 +1057,16 @@ namespace pyrochild.effects.common
             set
             {
                 surface = value;
+
+                if (image != null)
+                {
+                    image.Dispose();
+                    image = null;
+                }
+
                 if (surface != null)
                 {
-                    if (image != null)
-                        image.Dispose();
-
-                    image = surface.CreateAliasedBitmap();
+                    image = new Bitmap(surface.Width, surface.Height, surface.Stride, PixelFormat.Format32bppArgb, (IntPtr)surface.Scan0);
                     UpdateSize();
                 }
             }
@@ -1258,7 +1265,7 @@ namespace pyrochild.effects.common
         {
             if (surface != null)
             {
-                canvasSize = surface.Size.Factor(scale);
+                canvasSize = SurfaceSize.Factor(scale);
             }
 
             UpdateScrollbars();
