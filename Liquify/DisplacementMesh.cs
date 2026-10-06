@@ -521,10 +521,11 @@ namespace pyrochild.effects.liquify
             for (int y = 0; y < target.height; ++y)
             {
                 DisplacementVector* ptr = target.GetPointAddressUnchecked(0, y);
-                float srcy = y * yfactor;
+                // the middle of each target vector's pixel, in this mesh's coordinates
+                float srcy = (y + 0.5f) * yfactor - 0.5f;
                 for (int x = 0; x < target.width; ++x)
                 {
-                    float srcx = x * xfactor;
+                    float srcx = (x + 0.5f) * xfactor - 0.5f;
                     DisplacementVector v = GetBilinearSample(srcx, srcy);
                     ptr->X = v.X / xfactor;
                     ptr->Y = v.Y / yfactor;

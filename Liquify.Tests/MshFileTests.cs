@@ -163,6 +163,22 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void A_scaled_file_lines_up_with_the_image_pixel_for_pixel()
+        {
+            // twice the size, with an offset that grows along x: file vector fx holds fx
+            byte[] file = BuildFile(20, 20, (x, y) => new PointF(x, 0));
+
+            using (DisplacementMesh mesh = new DisplacementMesh(10, 10))
+            {
+                mesh.Load(new MemoryStream(file));
+
+                // pixel 4 of the smaller image covers file pixels 8 and 9, so it gets the offset
+                // between them (8.5), halved along with the image
+                Assert.Equal(4.25f, mesh[4, 5].X, 3);
+            }
+        }
+
+        [Fact]
         public void Something_that_is_not_a_mesh_file_is_rejected_and_leaves_the_mesh_alone()
         {
             byte[] notAMesh = new byte[200];
