@@ -1,0 +1,142 @@
+name: Release
+
+# Run by hand from the Actions tab. Nothing is typed in: the version is worked out here.
+#
+#   5.1  .  2610  .  0614
+#   |       |        the day and hour (UTC) of the commit being released
+#   |       its year and month
+#   VersionPrefix in Liquify.csproj: the Paint.NET version this is built for
+#
+# If that version has been released already, the hour is moved on by one until it is free.
+
+on:
+  workflow_dispatch:
+    inputs:
+      beta:
+        description: Beta (the Debug build, which shows up in Paint.NET as "Liquify BETA"), published as a pre-release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags are needed, to see which versions are taken
+
+      - name: Only master is released, except as a beta
+        if: ${{ !inputs.beta && github.ref != 'refs/heads/master' }}
+        shell: pwsh
+        run: |
+          Write-Error "Releases are made from master. This is $env:GITHUB_REF; run it there, or tick Beta."
+          exit 1
+
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content Liquify/Liquify.csproj
+          $prefix = ($project.Project.PropertyGroup.VersionPrefix | Where-Object { $_ } | Select-Object -First 1).Trim()
+
+          $committed = [DateTimeOffset]::FromUnixTimeSeconds([long](git log -1 --format=%ct)).UtcDateTime
+          $yearMonth = $committed.ToString('yyMM')
+          $dayHour = [int]$committed.ToString('ddHH')
+
+          # a beta and a final release of the same hour count as the same version
+          function Taken($stamp) { [bool](git tag --list "v$prefix.$stamp" "v$prefix.$stamp-beta") }
+
+          $stamp = '{0}.{1:0000}' -f $yearMonth, $dayHour
+          while (Taken $stamp) {
+            $dayHour++
+            $stamp = '{0}.{1:0000}' -f $yearMonth, $dayHour
+          }
+
+          $version = "$prefix.$stamp"
+          $tag = if ('${{ inputs.beta }}' -eq 'true') { "v$version-beta" } else { "v$version" }
+          "Releasing $version as $tag"
+          "stamp=$stamp" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "configuration=$(if ('${{ inputs.beta }}' -eq 'true') { 'Debug' } else { 'Release' })" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Get Paint.NET
+        id: pdn
+        uses: ./.github/actions/paintdotnet
+
+      - name: Build and test
+        shell: pwsh
+        run: |
+          $properties = @(
+            "-p:PdnDir=${{ steps.pdn.outputs.dir }}",
+            "-p:LiquifyEffectsDir=$(Join-Path $env:RUNNER_TEMP 'effects\')",
+            "-p:LiquifyBuildStamp=${{ steps.version.outputs.stamp }}")
+
+          dotnet build Liquify.sln -c ${{ steps.version.outputs.configuration }} --nologo @properties
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          dotnet test Liquify.sln -c ${{ steps.version.outputs.configuration }} --no-build --nologo @properties
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Collect the files to publish
+        id: files
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem "Liquify/bin/${{ steps.version.outputs.configuration }}" -Recurse -Filter Liquify.dll | Select-Object -First 1
+          if (-not $dll) { throw 'Liquify.dll was not built' }
+
+          # the version Windows will show for it must be the one being released
+          $built = [version]$dll.VersionInfo.FileVersion
+          $wanted = [version]'${{ steps.version.outputs.version }}'
+          if ($built -ne $wanted) { throw "Built $built, but releasing $wanted" }
+
+          # The zip carries the license with the plugin: it holds the notices that have to go
+          # wherever the plugin does, for this code and for what it includes from others.
+          $out = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'release')
+          Copy-Item $dll.FullName (Join-Path $out 'Liquify.dll')
+          Copy-Item LICENSE (Join-Path $out 'LICENSE.txt')
+          Compress-Archive (Join-Path $out 'Liquify.dll'), (Join-Path $out 'LICENSE.txt') (Join-Path $out 'Liquify-${{ steps.version.outputs.version }}.zip')
+          "dir=$out" >> $env:GITHUB_OUTPUT
+
+      # The notes are the top section of RELEASE_NOTES.md if the repository has one; otherwise
+      # GitHub lists the changes since the last release.
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $out = '${{ steps.files.outputs.dir }}'
+          $arguments = @(
+            'release', 'create', '${{ steps.version.outputs.tag }}',
+            (Join-Path $out 'Liquify.dll'),
+            (Join-Path $out 'Liquify-${{ steps.version.outputs.version }}.zip'),
+            '--target', $env:GITHUB_SHA,
+            '--title', 'Liquify ${{ steps.version.outputs.version }}')
+
+          if ('${{ inputs.beta }}' -eq 'true') { $arguments += '--prerelease' }
+
+          $notes = $null
+          if (Test-Path RELEASE_NOTES.md) {
+            # from the first "## " heading up to the next one
+            $section = [regex]::Match((Get-Content RELEASE_NOTES.md -Raw), '(?ms)^## [^\n]*\n(.*?)(?=^## |\z)')
+            if ($section.Success -and $section.Groups[1].Value.Trim()) { $notes = $section.Groups[1].Value.Trim() }
+          }
+
+          if ($notes) {
+            $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
+            Set-Content $notesFile $notes -Encoding utf8
+            $arguments += @('--notes-file', $notesFile)
+          } else {
+            $arguments += '--generate-notes'
+          }
+
+          gh @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

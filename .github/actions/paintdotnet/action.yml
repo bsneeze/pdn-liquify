@@ -1,0 +1,43 @@
+name: Get Paint.NET
+description: >
+  Downloads Paint.NET's portable build and unpacks it, for the project to compile against and
+  the tests to load. Nothing from it is committed or published.
+
+inputs:
+  version:
+    description: The Paint.NET release to build against (a tag of paintdotnet/release without the "v").
+    default: '5.1.12'
+
+outputs:
+  dir:
+    description: Where it was unpacked, with a trailing backslash (the form -p:PdnDir wants).
+    value: ${{ steps.unpack.outputs.dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore from cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}\paintdotnet
+        key: paintdotnet-portable-x64-${{ inputs.version }}
+
+    - name: Download and unpack
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        $ProgressPreference = 'SilentlyContinue'
+        $version = '${{ inputs.version }}'
+        $zip = Join-Path $env:RUNNER_TEMP 'paintdotnet.zip'
+        Invoke-WebRequest "https://github.com/paintdotnet/release/releases/download/v$version/paint.net.$version.portable.x64.zip" -OutFile $zip
+        Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'paintdotnet') -Force
+        Remove-Item $zip
+
+    - name: Report where it is
+      id: unpack
+      shell: pwsh
+      run: |
+        $dir = Join-Path $env:RUNNER_TEMP 'paintdotnet'
+        if (-not (Test-Path (Join-Path $dir 'PaintDotNet.Core.dll'))) { throw "Paint.NET was not found in $dir" }
+        "dir=$dir\" >> $env:GITHUB_OUTPUT
