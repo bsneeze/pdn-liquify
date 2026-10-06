@@ -39,9 +39,14 @@ namespace pyrochild.effects.liquify
         private Dictionary<Control, LiquifyMode> rendermodes;
         private LiquifyMode mode;
 
-        // true from the moment a mouse-down is queued until the renderer has finished that stroke.
+        // True from the moment a mouse-down is queued until the renderer has finished that stroke.
         // The render thread owns the mesh for that time, so undo, redo, load and save have to wait.
-        private bool strokePending;
+        // A count, because a second stroke can be queued before the renderer has finished the first.
+        private int strokesPending;
+        private bool strokePending
+        {
+            get { return strokesPending > 0; }
+        }
 
         // set on the render thread when undo couldn't keep what a stroke was about to overwrite
         private volatile bool strokeRanOutOfMemory;
@@ -805,12 +810,17 @@ namespace pyrochild.effects.liquify
         // look disabled if the stroke lasts.
         private void SetStrokePending(bool pending)
         {
-            strokePending = pending;
-
             if (pending)
             {
+                ++strokesPending;
                 lockTimer.Start();
                 return;
+            }
+
+            strokesPending = Math.Max(0, strokesPending - 1);
+            if (strokePending)
+            {
+                return; // another stroke is still queued
             }
 
             lockTimer.Stop();
