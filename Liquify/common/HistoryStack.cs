@@ -150,6 +150,24 @@ namespace pyrochild.effects.liquify
             }
         }
 
+        /// <summary>
+        /// Puts back what BeforeChange has saved and forgets it, for a change that failed part way.
+        /// </summary>
+        public void RevertChange(DisplacementMesh mesh)
+        {
+            lock (sync)
+            {
+                try
+                {
+                    Restore(mesh);
+                }
+                finally
+                {
+                    ClearPending();
+                }
+            }
+        }
+
         private void ClearPending()
         {
             foreach (DisplacementMesh tile in beforeTiles.Values)

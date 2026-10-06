@@ -70,6 +70,31 @@ namespace pyrochild.effects.liquify.tests
             }
         }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void A_change_that_failed_part_way_can_be_put_back(bool wholeMesh)
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(200, 150))
+            using (HistoryStack history = new HistoryStack())
+            {
+                Edit(mesh, mesh.Bounds, 7, 40);
+                Rectangle rect = wholeMesh ? mesh.Bounds : new Rectangle(30, 20, 100, 90);
+
+                using (DisplacementMesh original = mesh.Clone())
+                {
+                    Assert.True(history.BeforeChange(mesh, rect));
+                    Edit(mesh, rect, 500, 200);
+
+                    history.RevertChange(mesh);
+
+                    Assert.Null(TestHelpers.FirstDifference(original, mesh));
+                    Assert.False(history.CanStepBack);
+                    Assert.Equal(0, history.PendingVectorCount);
+                }
+            }
+        }
+
         [Fact]
         public void Undoing_an_edit_leaves_a_freeze_mask_made_earlier_in_place()
         {

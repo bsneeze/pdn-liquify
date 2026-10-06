@@ -1775,9 +1775,20 @@ namespace pyrochild.effects.liquify
                 }
                 catch (Exception exception)
                 {
-                    historystack.CancelChange();
+                    // put back whatever the load had already overwritten
+                    string notRestored = string.Empty;
+                    try
+                    {
+                        historystack.RevertChange(mesh);
+                    }
+                    catch
+                    {
+                        notRestored = "\n\nThe mesh may have been partly replaced, and that can't be undone.";
+                    }
+                    RenderWholePreview();
+
                     MessageBox.Show(this,
-                        "Error loading mesh from file:\n\n" + exception.ToString(),
+                        "Error loading mesh from file:\n\n" + exception.ToString() + notRestored,
                         "Error loading mesh file",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Error);
