@@ -426,33 +426,13 @@ namespace pyrochild.effects.liquify
                     DisplacementMesh loaded = new DisplacementMesh(size);
                     loaded.LoadData(br);
 
-                    DisplacementMesh resized = loaded.Resize(this.Size);
+                    // Mask is left alone, just like in a same-size load
+                    loaded.ResizeInto(this);
                     loaded.Dispose();
-
-                    // only take the offsets, so Mask is left alone just like in a same-size load
-                    CopyOffsets(resized);
-                    resized.Dispose();
                 }
             }
         }
 
-        private unsafe void CopyOffsets(DisplacementMesh srcMesh)
-        {
-            for (int y = 0; y < height; ++y)
-            {
-                DisplacementVector*
-                    src = srcMesh.GetPointAddressUnchecked(0, y),
-                    dst = this.GetPointAddressUnchecked(0, y);
-                for (int x = 0; x < width; ++x)
-                {
-                    dst->X = src->X;
-                    dst->Y = src->Y;
-                    ++src;
-                    ++dst;
-                }
-            }
-        }
-        
         private static Size ReadHeader(BinaryReader br)
         {
             if (br.BaseStream.Length - br.BaseStream.Position < 24)
@@ -524,17 +504,25 @@ namespace pyrochild.effects.liquify
             return DisplacementVector.Lerp(t, b, y - y0);
         }
 
-        public unsafe DisplacementMesh Resize(Size size)
+        public DisplacementMesh Resize(Size size)
         {
             DisplacementMesh ret = new DisplacementMesh(size);
+            ResizeInto(ret);
+            return ret;
+        }
 
-            float xfactor = (float)width / size.Width;
-            float yfactor = (float)height / size.Height;
-            for (int y = 0; y < size.Height; ++y)
+        /// <summary>
+        /// Replaces target's distortion with this mesh's, scaled to target's size. Its mask is kept.
+        /// </summary>
+        internal unsafe void ResizeInto(DisplacementMesh target)
+        {
+            float xfactor = (float)width / target.width;
+            float yfactor = (float)height / target.height;
+            for (int y = 0; y < target.height; ++y)
             {
-                DisplacementVector* ptr = ret.GetPointAddressUnchecked(0, y);
-                float srcy = y * yfactor; ;
-                for (int x = 0; x < size.Width; ++x)
+                DisplacementVector* ptr = target.GetPointAddressUnchecked(0, y);
+                float srcy = y * yfactor;
+                for (int x = 0; x < target.width; ++x)
                 {
                     float srcx = x * xfactor;
                     DisplacementVector v = GetBilinearSample(srcx, srcy);
@@ -543,7 +531,6 @@ namespace pyrochild.effects.liquify
                     ++ptr;
                 }
             }
-            return ret;
         }
 
         public unsafe void Copy(DisplacementMesh srcMesh, Point dstOffset, Rectangle srcRect)

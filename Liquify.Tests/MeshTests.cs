@@ -85,6 +85,36 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void Resizing_into_a_mesh_replaces_its_distortion_and_leaves_its_mask()
+        {
+            using (DisplacementMesh small = new DisplacementMesh(20, 15))
+            using (DisplacementMesh target = new DisplacementMesh(50, 45))
+            using (DisplacementMesh expected = Resized(small, 50, 45))
+            {
+                // old values that must all be overwritten
+                TestHelpers.Fill(target, (x, y) => new DisplacementVector(99, -99, (byte)(x + y)));
+
+                small.ResizeInto(target);
+
+                for (int y = 0; y < 45; ++y)
+                {
+                    for (int x = 0; x < 50; ++x)
+                    {
+                        Assert.Equal(expected[x, y].X, target[x, y].X);
+                        Assert.Equal(expected[x, y].Y, target[x, y].Y);
+                        Assert.Equal((byte)(x + y), target[x, y].Mask);
+                    }
+                }
+            }
+        }
+
+        private static DisplacementMesh Resized(DisplacementMesh mesh, int width, int height)
+        {
+            TestHelpers.Fill(mesh, (x, y) => new DisplacementVector(x * 0.5f - 3, y * -0.25f + 2));
+            return mesh.Resize(new Size(width, height));
+        }
+
+        [Fact]
         public void A_constant_offset_pulls_pixels_from_that_far_away()
         {
             using (Surface source = TestHelpers.PositionSurface(100, 80))
