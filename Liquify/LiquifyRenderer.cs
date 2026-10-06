@@ -11,6 +11,12 @@ namespace pyrochild.effects.liquify
         Point lastmouse;
         int strokesize;
         int radius;
+
+        // The brush circle within the buffer: an odd size has a pixel at its center and an even
+        // one a corner, so that every size covers that many pixels across.
+        float center;
+        float invRadiusSquared;
+
         int spacing;
         float pressure;
         float[] density;
@@ -80,17 +86,21 @@ namespace pyrochild.effects.liquify
                 strokeStopped = false;
                 strokesize = e.Size;
                 radius = strokesize / 2;
+                center = (strokesize - 1) / 2f;
+                invRadiusSquared = 4f / ((float)strokesize * strokesize);
                 spacing = Math.Max(1, radius / 4);
                 remainingSpace = 0;
                 buffer = new DisplacementMesh(strokesize, strokesize);
                 pressure = e.Pressure;
                 mode = e.Mode;
-                density = new float[radius];
+
+                // strength by (d / radius)^2, in enough steps that a small brush still fades smoothly
+                density = new float[Math.Max(64, strokesize)];
 
                 float densityexp = FalloffExponent(e.Density);
                 for (int i = 0; i < density.Length; ++i)
                 {
-                    density[i] = (float)Math.Pow(1 - (float)i / radius, densityexp);
+                    density[i] = (float)Math.Pow(1 - (float)i / density.Length, densityexp);
                 }
 
                 // A stroke starts where the button went down. lastmouse is normally there already from
@@ -198,19 +208,19 @@ namespace pyrochild.effects.liquify
             DisplacementVector* meshptr = mesh.GetPointAddressUnchecked(clippedRect.Left, y);
             DisplacementVector* bufferptr = buffer.GetPointAddressUnchecked(clippedRect.Left - dstRect.Left, y - dstRect.Top);
             DisplacementVector displace = DisplacementVector.Zero;
-            int yc = y - dstRect.Top - radius;
-            int xc;
-            int densityindex;
+            float yc = y - dstRect.Top - center;
+            float xc;
 
             for (int x = clippedRect.Left; x < clippedRect.Right; ++x)
             {
-                xc = x - dstRect.Left - radius;
-                densityindex = (xc * xc + yc * yc) / radius;
+                xc = x - dstRect.Left - center;
+                float t = (xc * xc + yc * yc) * invRadiusSquared;
 
-                if (densityindex < radius)
+                if (t < 1)
                 {
+                    float strength = density[Math.Min((int)(t * density.Length), density.Length - 1)];
                     float mask = meshptr->Mask / 255f;
-                    float amount = density[densityindex] * pressure * (1 - mask);
+                    float amount = strength * pressure * (1 - mask);
 
                     *bufferptr = *meshptr;
 
@@ -252,11 +262,11 @@ namespace pyrochild.effects.liquify
                             break;
 
                         case LiquifyMode.Freeze:
-                            mask = Math.Min(mask + density[densityindex] * pressure, 1);
+                            mask = Math.Min(mask + strength * pressure, 1);
                             break;
 
                         case LiquifyMode.Thaw:
-                            mask = Math.Max(mask - density[densityindex] * pressure, 0);
+                            mask = Math.Max(mask - strength * pressure, 0);
                             break;
                     }
                     bufferptr->X += displace.X;
@@ -273,13 +283,13 @@ namespace pyrochild.effects.liquify
             DisplacementVector* meshptr = mesh.GetPointAddressUnchecked(clippedRect.Left, y);
             DisplacementVector* bufferptr = buffer.GetPointAddressUnchecked(clippedRect.Left - dstRect.Left, y - dstRect.Top);
 
-            int yc = y - dstRect.Top - radius;
-            int xc;
+            float yc = y - dstRect.Top - center;
+            float xc;
 
             for (int x = clippedRect.Left; x < clippedRect.Right; ++x)
             {
-                xc = x - dstRect.Left - radius;
-                if ((xc * xc + yc * yc) / radius < radius)
+                xc = x - dstRect.Left - center;
+                if ((xc * xc + yc * yc) * invRadiusSquared < 1)
                 {
                     *meshptr = *bufferptr;
                 }

@@ -94,7 +94,6 @@ namespace pyrochild.effects.common
         private Image canvasBackgroundImage;
         private float scale;
         private MouseButtons buttons;
-        private int brushRadius;
         private int brushSize;
         private PointF canvasmouselocation; //the mouse location relative to the canvas
         private bool panelhasmouse;
@@ -608,7 +607,7 @@ namespace pyrochild.effects.common
 
                 if ((panelhasmouse || brushPreview) && !panning && !spaceHeld)
                 {
-                    int scaledbrushradius = (int)(brushRadius * scale);
+                    int scaledbrushradius = ScaledBrushRadius;
                     int left = (int)canvasmouselocation.X - scaledbrushradius - 1 + canvasBounds.X;
                     int top = (int)canvasmouselocation.Y - scaledbrushradius - 1 + canvasBounds.Y;
                     int diameter = 2 * scaledbrushradius + 2;
@@ -994,9 +993,14 @@ namespace pyrochild.effects.common
             {
                 InvalidateBrush();
                 brushSize = value;
-                brushRadius = value / 2;
                 InvalidateBrush();
             }
+        }
+
+        // on screen, rounded so that odd sizes aren't drawn as the even size below
+        private int ScaledBrushRadius
+        {
+            get { return (int)(brushSize * scale / 2 + 0.5f); }
         }
 
         /// <summary>
@@ -2089,7 +2093,7 @@ namespace pyrochild.effects.common
         private void InvalidateBrush()
         {
             Point location = CanvasLocation;
-            int scaledbrushradius = (int)(brushRadius * scale);
+            int scaledbrushradius = ScaledBrushRadius;
             this.Invalidate(new Rectangle(
                 (int)canvasmouselocation.X - scaledbrushradius + location.X - 2,
                 (int)canvasmouselocation.Y - scaledbrushradius + location.Y - 2,

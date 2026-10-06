@@ -70,6 +70,36 @@ namespace pyrochild.effects.liquify.tests
             return changed;
         }
 
+        [Theory]
+        [InlineData(2)]
+        [InlineData(3)]
+        [InlineData(4)]
+        [InlineData(5)]
+        [InlineData(50)]
+        [InlineData(51)]
+        public void A_brush_covers_as_many_pixels_across_as_its_size(int size)
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(120, 120))
+            {
+                Stroke(mesh, LiquifyMode.Freeze, size, 1f, new Point(60, 60));
+
+                List<Point> frozen = ChangedVectors(mesh);
+                Assert.NotEmpty(frozen);
+
+                int left = int.MaxValue, top = int.MaxValue, right = int.MinValue, bottom = int.MinValue;
+                foreach (Point p in frozen)
+                {
+                    left = Math.Min(left, p.X);
+                    top = Math.Min(top, p.Y);
+                    right = Math.Max(right, p.X);
+                    bottom = Math.Max(bottom, p.Y);
+                }
+
+                Assert.Equal(size, right - left + 1);
+                Assert.Equal(size, bottom - top + 1);
+            }
+        }
+
         private static double DistanceToSegment(Point p, Point a, Point b)
         {
             double dx = b.X - a.X, dy = b.Y - a.Y;
