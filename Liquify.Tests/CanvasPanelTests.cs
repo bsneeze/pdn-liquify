@@ -634,6 +634,48 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void Filling_the_background_menu_again_frees_the_entries_and_pictures_from_last_time()
+        {
+            WithCanvas(PartlyTransparentSurface, canvas =>
+            {
+                // not the real clipboard
+                canvas.ClipboardSequence = () => 1;
+                canvas.ReadClipboardImage = () => SolidPicture(30, 20, Color.Red);
+
+                using (ContextMenuStrip menu = new ContextMenuStrip())
+                {
+                    canvas.FillBackgroundMenu(menu, true);
+
+                    List<ToolStripItem> firstItems = new List<ToolStripItem>();
+                    List<Image> firstImages = new List<Image>();
+                    foreach (ToolStripItem item in menu.Items)
+                    {
+                        firstItems.Add(item);
+                        if (item.Image != null)
+                        {
+                            firstImages.Add(item.Image);
+                        }
+                    }
+                    Assert.True(firstImages.Count >= 5, "the entries have no pictures");
+
+                    canvas.FillBackgroundMenu(menu, true);
+
+                    Assert.Equal(firstItems.Count, menu.Items.Count);
+                    Assert.All(firstItems, item => Assert.True(item.IsDisposed, item.Text));
+                    Assert.All(firstImages, image => Assert.True(IsDisposed(image)));
+
+                    // the new entries are intact, and so is the clipboard swatch, which is kept between fills
+                    foreach (ToolStripItem item in menu.Items)
+                    {
+                        Assert.False(item.IsDisposed, item.Text);
+                        Assert.False(item.Image != null && IsDisposed(item.Image), item.Text);
+                    }
+                    Assert.False(IsDisposed(canvas.GetClipboardSwatch()));
+                }
+            });
+        }
+
+        [Fact]
         public void Picking_on_the_color_wheel_keeps_how_see_through_the_color_is()
         {
             TestHelpers.RunSta(() =>

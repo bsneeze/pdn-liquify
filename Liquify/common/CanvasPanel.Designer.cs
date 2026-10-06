@@ -34,6 +34,12 @@ namespace pyrochild.effects.common
 
                 SetBackgroundImage(null);
 
+                unSelection?.Dispose();
+                unSelection = null;
+
+                selectionOutline?.Dispose();
+                selectionOutline = null;
+
                 painter.Dispose();
             }
             base.Dispose(disposing);

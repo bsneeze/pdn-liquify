@@ -1042,6 +1042,10 @@ namespace pyrochild.effects.common
         {
             if (selection != null)
             {
+                // these are remade at every zoom
+                unSelection?.Dispose();
+                selectionOutline?.Dispose();
+
                 unSelection = new PdnRegion(new Rectangle(0, 0, surface.Width, surface.Height));
                 unSelection.Exclude(selection);
                 selectionOutline = selection.GetOutline(new Rectangle(Point.Empty, SurfaceSize), scale);
@@ -1847,22 +1851,46 @@ namespace pyrochild.effects.common
                 return item;
             };
 
+            // last time's entries and their pictures; disposing an entry removes it, hence the copy
+            foreach (ToolStripItem old in new System.Collections.ArrayList(menu.Items))
+            {
+                Image oldImage = old.Image;
+                old.Dispose();
+                if (oldImage != null)
+                {
+                    oldImage.Dispose();
+                }
+            }
             menu.Items.Clear();
-            using (Surface sfc = new Surface(16, 16))
+
+            // for a swatch that isn't needed once it has been drawn into the entry's picture
+            Action<string, Image, bool, EventHandler> addSwatch = (text, swatchImage, isCurrent, onClick) =>
+            {
+                using (swatchImage)
+                {
+                    add(text, swatchImage, isCurrent, onClick);
+                }
+            };
+
+            Func<Color, Image> plain = color =>
+            {
+                Bitmap swatchImage = new Bitmap(16, 16);
+                using (Graphics g = Graphics.FromImage(swatchImage))
+                {
+                    g.Clear(color);
+                }
+                return swatchImage;
+            };
+
             {
                 if (onCanvas)
-                    add("Transparent", CreateCheckerboardTile(1f), isTransparent, (s, e) => setColor(Color.Transparent));
+                    addSwatch("Transparent", CreateCheckerboardTile(1f), isTransparent, (s, e) => setColor(Color.Transparent));
 
-                sfc.Fill(ColorBgra.Black);
-                add("Black", new Bitmap(sfc.CreateAliasedBitmap()), isBlack, (s, e) => setColor(Color.Black));
+                addSwatch("Black", plain(Color.Black), isBlack, (s, e) => setColor(Color.Black));
+                addSwatch("White", plain(Color.White), isWhite, (s, e) => setColor(Color.White));
+                addSwatch("Gray", plain(Color.FromArgb(127, 127, 127)), isGray, (s, e) => setColor(Color.Gray));
 
-                sfc.Fill(ColorBgra.White);
-                add("White", new Bitmap(sfc.CreateAliasedBitmap()), isWhite, (s, e) => setColor(Color.White));
-
-                sfc.Fill(ColorBgra.FromBgr(127, 127, 127));
-                add("Gray", new Bitmap(sfc.CreateAliasedBitmap()), isGray, (s, e) => setColor(Color.Gray));
-
-                add("Other color...", new Bitmap(typeof(Liquify),"images.colorwheel.png"), isOtherColor, (s, e) =>
+                addSwatch("Other color...", new Bitmap(typeof(Liquify),"images.colorwheel.png"), isOtherColor, (s, e) =>
                 {
                     // The picker's color is shown as it changes. That is only a preview: whatever the
                     // background was (which may be an image or a layer) is put back when the picker

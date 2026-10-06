@@ -143,7 +143,10 @@ namespace pyrochild.effects.common
                 bufferGraphics.FillRectangle(lgb, 0, 0, ClientSize.Width, ClientSize.Height);
             }
 
-            bufferGraphics.FillRectangle(new SolidBrush(this.ForeColor), 0.0f, 0.0f, ClientRectangle.Width * slidervalue, this.ClientRectangle.Height);
+            using (SolidBrush fill = new SolidBrush(this.ForeColor))
+            {
+                bufferGraphics.FillRectangle(fill, 0.0f, 0.0f, ClientRectangle.Width * slidervalue, this.ClientRectangle.Height);
+            }
             using (Pen borderPen = new Pen(hovering ? Color.White : borderColor))
             {
                 bufferGraphics.DrawRectangle(borderPen, 0, 0, this.ClientSize.Width - 1, this.ClientSize.Height - 1);

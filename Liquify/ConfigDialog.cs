@@ -1714,7 +1714,7 @@ namespace pyrochild.effects.liquify
                 return;
             }
 
-            OpenFileDialog ofd = new OpenFileDialog();
+            using OpenFileDialog ofd = new OpenFileDialog();
 
             ofd.Filter = dialogFilter;
             if (ofd.ShowDialog(this) == DialogResult.OK)
@@ -1762,7 +1762,7 @@ namespace pyrochild.effects.liquify
                 return;
             }
 
-            SaveFileDialog sfd = new SaveFileDialog();
+            using SaveFileDialog sfd = new SaveFileDialog();
             sfd.Filter = dialogFilter;
             sfd.FileName = "Liquify.msh";
             if (sfd.ShowDialog(this) == DialogResult.OK)
