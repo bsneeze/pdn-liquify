@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <!--
+        Paint.NET's assemblies carry precompiled code that is tied to the exact .NET build Paint.NET
+        ships with. Loaded into another build of the same major version (9.0.20 against Paint.NET's
+        9.0.13, say) the runtime ends the process: "MVID mismatch between loaded assembly
+        'System.Private.CoreLib' ...". This tells the test process to ignore precompiled code and
+        compile everything itself, which works on any runtime.
+      -->
+      <DOTNET_ReadyToRun>0</DOTNET_ReadyToRun>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>
