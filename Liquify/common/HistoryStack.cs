@@ -54,7 +54,7 @@ namespace pyrochild.effects.liquify
         // that has run out of memory
         internal Func<int, int, DisplacementMesh> NewMesh = (width, height) => new DisplacementMesh(width, height);
 
-        public HistoryStack(DisplacementMesh mesh)
+        public HistoryStack()
         {
             stack = new List<HistoryItem>();
             step = -1;

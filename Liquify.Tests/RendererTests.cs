@@ -137,7 +137,7 @@ namespace pyrochild.effects.liquify.tests
         public void A_real_stroke_is_undone_exactly()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(400, 300))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             using (ManualResetEventSlim finished = new ManualResetEventSlim())
             {
                 // an earlier distortion and some frozen area, for the stroke to go over

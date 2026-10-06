@@ -26,9 +26,6 @@ namespace pyrochild.effects.common
                 canvasCheckerBrush?.Dispose();
                 canvasCheckerBrush = null;
 
-                image?.Dispose();
-                image = null;
-
                 clipboardSwatch?.Dispose();
                 clipboardSwatch = null;
 

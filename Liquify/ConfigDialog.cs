@@ -1098,7 +1098,7 @@ namespace pyrochild.effects.liquify
 
             mesh = new DisplacementMesh(source.Size);
             mesh.Render(surface, source, source.Bounds);
-            historystack = new HistoryStack(mesh);
+            historystack = new HistoryStack();
 
             InitializeRenderer();
 

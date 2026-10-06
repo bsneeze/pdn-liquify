@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using System.Windows.Forms;
 
 namespace pyrochild.effects.common
@@ -90,7 +89,6 @@ namespace pyrochild.effects.common
         private const int canvasMargin = 10;
 
         private ISurface<ColorBgra> surface;
-        private Bitmap image; // shares the surface's memory
         private Size canvasSize; // the image at the current zoom
         private Color canvasBackColor = Color.Transparent;
         private Image canvasBackgroundImage;
@@ -705,10 +703,6 @@ namespace pyrochild.effects.common
             {
                 g.DrawImage(canvasBackgroundImage, whole);
             }
-            if (image != null)
-            {
-                g.DrawImage(image, whole);
-            }
         }
 
         const int parallelMinPixels = 128 * 128;
@@ -1056,7 +1050,7 @@ namespace pyrochild.effects.common
         /// <summary>
         /// The image shown. The canvas doesn't own it: set this to null before the pixels go away.
         /// </summary>
-        public unsafe ISurface<ColorBgra> Surface
+        public ISurface<ColorBgra> Surface
         {
             get
             {
@@ -1066,15 +1060,8 @@ namespace pyrochild.effects.common
             {
                 surface = value;
 
-                if (image != null)
-                {
-                    image.Dispose();
-                    image = null;
-                }
-
                 if (surface != null)
                 {
-                    image = new Bitmap(surface.Width, surface.Height, surface.Stride, PixelFormat.Format32bppArgb, (IntPtr)surface.Scan0);
                     UpdateSize();
                 }
             }

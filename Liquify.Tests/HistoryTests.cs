@@ -22,7 +22,7 @@ namespace pyrochild.effects.liquify.tests
         public void Undo_and_redo_step_through_overlapping_edits_exactly()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(64, 48))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 Rectangle[] rects =
                 {
@@ -74,7 +74,7 @@ namespace pyrochild.effects.liquify.tests
         public void Undoing_an_edit_leaves_a_freeze_mask_made_earlier_in_place()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(40, 40))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 Rectangle frozen = new Rectangle(10, 10, 10, 10);
                 history.BeforeChange(mesh, frozen);
@@ -105,7 +105,7 @@ namespace pyrochild.effects.liquify.tests
         public void A_new_edit_after_an_undo_discards_what_could_have_been_redone()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(20, 20))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 Rectangle rect = new Rectangle(2, 2, 5, 5);
 
@@ -137,7 +137,7 @@ namespace pyrochild.effects.liquify.tests
         public void An_edit_that_touches_nothing_adds_no_step()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(20, 20))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 history.AddHistoryItem(mesh, Rectangle.Empty);
                 history.AddHistoryItem(mesh, new Rectangle(500, 500, 10, 10));
@@ -150,7 +150,7 @@ namespace pyrochild.effects.liquify.tests
         public void An_edit_that_runs_off_the_mesh_is_recorded_for_the_part_inside()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(20, 20))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 history.BeforeChange(mesh, new Rectangle(15, 15, 40, 40));
                 Edit(mesh, new Rectangle(15, 15, 5, 5), 9);
@@ -165,7 +165,7 @@ namespace pyrochild.effects.liquify.tests
         public void Only_the_touched_part_of_the_mesh_is_held_while_a_change_is_in_progress()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(1000, 800))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 Assert.Equal(0, history.PendingVectorCount);
 
@@ -192,7 +192,7 @@ namespace pyrochild.effects.liquify.tests
         public void A_change_announced_bit_by_bit_is_undone_exactly()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(300, 200))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 TestHelpers.Fill(mesh, (x, y) => new DisplacementVector(x * 0.5f, y * 0.25f, (byte)(x ^ y)));
 
@@ -243,7 +243,7 @@ namespace pyrochild.effects.liquify.tests
         public void When_memory_runs_out_mid_change_the_caller_is_told_before_anything_is_overwritten()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(400, 300))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 TestHelpers.Fill(mesh, (x, y) => new DisplacementVector(x, y, 7));
 
@@ -276,7 +276,7 @@ namespace pyrochild.effects.liquify.tests
         public void A_change_that_cannot_be_recorded_is_put_back()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(400, 300))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 // an earlier step, and one undone, to see that neither is disturbed
                 Rectangle earlier = new Rectangle(300, 200, 20, 20);
@@ -319,7 +319,7 @@ namespace pyrochild.effects.liquify.tests
         public void A_stroke_that_cannot_be_written_to_disk_is_put_back()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(300, 200))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 TestHelpers.Fill(mesh, (x, y) => new DisplacementVector(x * 2, y * 3, (byte)x));
 
@@ -358,7 +358,7 @@ namespace pyrochild.effects.liquify.tests
         public void A_whole_mesh_change_is_refused_or_put_back_when_the_disk_cannot_be_written()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(120, 90))
-            using (HistoryStack history = new HistoryStack(mesh))
+            using (HistoryStack history = new HistoryStack())
             {
                 TestHelpers.Fill(mesh, (x, y) => new DisplacementVector(x, -y, (byte)y));
 

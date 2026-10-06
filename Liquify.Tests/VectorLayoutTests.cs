@@ -12,7 +12,6 @@ namespace pyrochild.effects.liquify.tests
         {
             Assert.Equal(9, sizeof(DisplacementVector));
             Assert.Equal(9, Marshal.SizeOf(typeof(DisplacementVector)));
-            Assert.Equal(9, new DisplacementVector().SizeOf);
 
             using (DisplacementMesh mesh = new DisplacementMesh(100, 7))
             {

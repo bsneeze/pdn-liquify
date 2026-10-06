@@ -34,11 +34,6 @@ namespace pyrochild.effects.liquify
             Mask = mask;
         }
 
-        public int SizeOf
-        {
-            get { return 9; }
-        }
-
         public static DisplacementVector Zero
         {
             get
