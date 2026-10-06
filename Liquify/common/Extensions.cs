@@ -68,13 +68,6 @@ namespace pyrochild.effects.common
             return ToString(bytes, encoding, 0, bytes.Length);
         }
 
-        public static byte ClampToByte(this float val)
-        {
-            if (val < 0) return 0;
-            if (val > 255) return 255;
-            return (byte)val;
-        }
-
         public static ColorBgra ToColorBgra(this ColorHsv96Float color)
         {
             ColorRgb96Float rgb = color.ToRgb();

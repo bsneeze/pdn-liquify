@@ -22,18 +22,5 @@ namespace pyrochild.effects.common
             float y = a.Y + t * (b.Y - a.Y);
             return new PointF(x, y);
         }
-
-        public static int Clamp(int value, int min, int max)
-        {
-            if (value < min)
-            {
-                return min;
-            }
-            if (value > max)
-            {
-                return max;
-            }
-            return value;
-        }
     }
 }

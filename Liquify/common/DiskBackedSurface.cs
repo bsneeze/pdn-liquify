@@ -18,8 +18,7 @@ using System.Threading;
 namespace pyrochild.effects.liquify
 {
     public sealed class DiskBackedSurface
-        : IDisposable,
-          ICloneable
+        : IDisposable
     {
         private string backingfile;
         private State state;
@@ -133,16 +132,6 @@ namespace pyrochild.effects.liquify
             }
         }
 
-        public bool TryToMemory()
-        {
-            try
-            {
-                ToMemory();
-                return true;
-            }
-            catch { return false; }
-        }
-
         public void ToDisk()
         {
             if (state == State.Disk) { return; }
@@ -164,16 +153,6 @@ namespace pyrochild.effects.liquify
             state = State.Disk;
         }
 
-        public bool TryToDisk()
-        {
-            try
-            {
-                ToDisk();
-                return true;
-            }
-            catch { return false; }
-        }
-
         #region IDisposable Members
 
         public void Dispose()
@@ -184,18 +163,6 @@ namespace pyrochild.effects.liquify
                 surface.Dispose();
             }
             state = State.Disposed;
-        }
-
-        #endregion
-
-        #region ICloneable Members
-
-        public object Clone()
-        {
-            DiskBackedSurface retval = new DiskBackedSurface(this.surface, true);
-            retval.state = this.state;
-            retval.backingfile = this.backingfile;
-            return retval;
         }
 
         #endregion
