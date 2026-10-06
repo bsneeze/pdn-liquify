@@ -1529,15 +1529,9 @@ namespace pyrochild.effects.liquify
         {
             get
             {
+                // the text box only flags bad input, so it is caught here: the renderer can't handle sizes below 2
                 float width;
-
-                if (!float.TryParse(this.brushSize.Text, out width) || float.IsNaN(width))
-                {
-                    width = 30;
-                }
-
-                // the text box only flags out-of-range input, so clamp here: the renderer can't handle sizes below 2
-                return (int)Math.Clamp(width, minPenSize, maxPenSize);
+                return TryParseBrushSize(out width) ? (int)width : lastValidBrushSize;
             }
             set
             {
