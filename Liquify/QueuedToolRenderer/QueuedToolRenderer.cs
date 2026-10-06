@@ -67,8 +67,8 @@ namespace pyrochild.effects.common
             lock (eventQueue)
             {
                 eventQueue.Enqueue(args);
+                OnEventQueued();
             }
-            OnEventQueued();
         }
 
         public void AddEvents(IEnumerable<QueuedToolEventArgs> args)
@@ -82,29 +82,30 @@ namespace pyrochild.effects.common
             {
                 foreach(QueuedToolEventArgs arg in args)
                 eventQueue.Enqueue(arg);
+                OnEventQueued();
             }
-            OnEventQueued();
         }
 
+        // Called with the queue locked. One render thread serves the renderer's whole life,
+        // sleeping on the queue between events.
         private void OnEventQueued()
         {
-            // rendering is only changed under the queue lock, so the render thread can't decide to exit
-            // between an event being queued and this check
-            lock (eventQueue)
+            if (renderThread == null)
             {
-                if (rendering)
-                {
-                    return;
-                }
-                rendering = true;
+                renderThread = new Thread(new ThreadStart(Render));
+
+                // so a hung render can't keep the program from exiting
+                renderThread.IsBackground = true;
+                renderThread.Start();
             }
-            renderThread = new Thread(new ThreadStart(Render));
-            renderThread.Start();
+
+            Monitor.Pulse(eventQueue);
         }
 
-        bool rendering = false;
+        // set under the queue lock: the render thread exits once the queue is empty
+        bool stopping = false;
 
-        bool aborted = false;
+        volatile bool aborted = false;
         public void Abort()
         {
             aborted = true;
@@ -112,8 +113,8 @@ namespace pyrochild.effects.common
             {
                 eventQueue.Clear();
                 eventQueue.Enqueue(new QueuedToolAbortEventArgs());
+                OnEventQueued();
             }
-            OnEventQueued();
         }
 
         public bool IsAborted { get { return aborted; } }
@@ -132,14 +133,27 @@ namespace pyrochild.effects.common
             while (true)
             {
                 QueuedToolEventArgs args;
+                bool emptied = false;
                 lock (eventQueue)
                 {
+                    while (eventQueue.Count == 0 && !didsomething && !stopping)
+                    {
+                        Monitor.Wait(eventQueue);
+                    }
+
                     if (eventQueue.Count == 0)
                     {
-                        rendering = false;
-                        break;
+                        if (!didsomething)
+                        {
+                            return; // stopping
+                        }
+                        emptied = true;
+                        args = null;
                     }
-                    args = eventQueue.Dequeue();
+                    else
+                    {
+                        args = eventQueue.Dequeue();
+                    }
 
                     // when the queue is backed up, skip mouse moves that a later one makes redundant
                     while (args != null
@@ -152,38 +166,61 @@ namespace pyrochild.effects.common
                         args = eventQueue.Dequeue();
                     }
                 }
-                didsomething = true;
-                if (args != null)
+
+                try
                 {
-                    switch (args.EventType)
+                    if (emptied)
                     {
-                        case QueuedToolEventType.MouseDown:
-                            QueuedMouseDown(args);
-                            break;
-                        case QueuedToolEventType.MouseMove:
-                            QueuedMouseMove(args);
-                            break;
-                        case QueuedToolEventType.MouseUp:
-                            QueuedMouseUp(args);
-                            break;
-                        case QueuedToolEventType.Abort:
-                            QueuedAbort();
-                            break;
-                        case QueuedToolEventType.MouseHold:
-                            QueuedMouseHold(args);
-                            break;
-                        case QueuedToolEventType.Custom:
-                            QueuedCustomEvent(args);
-                            break;
-                        default:
-                            throw new ArgumentException("invalid event in queue");
+                        didsomething = false;
+                        OnQueueEmptied();
+                        continue;
+                    }
+
+                    didsomething = true;
+                    if (args != null)
+                    {
+                        Process(args);
                     }
                 }
+                catch (Exception ex) when (Error != null)
+                {
+                    // An exception leaving this thread would take the host down. Carry on with the
+                    // next event: the mouse-up that ends a stroke must still get through.
+                    Error(this, new ThreadExceptionEventArgs(ex));
+                }
             }
-            if (didsomething)
+        }
+
+        /// <summary>
+        /// Raised on the render thread when handling an event throws. With no subscribers the
+        /// exception is left unhandled.
+        /// </summary>
+        public event ThreadExceptionEventHandler Error;
+
+        private void Process(QueuedToolEventArgs args)
+        {
+            switch (args.EventType)
             {
-                OnQueueEmptied();
-                didsomething = false;
+                case QueuedToolEventType.MouseDown:
+                    QueuedMouseDown(args);
+                    break;
+                case QueuedToolEventType.MouseMove:
+                    QueuedMouseMove(args);
+                    break;
+                case QueuedToolEventType.MouseUp:
+                    QueuedMouseUp(args);
+                    break;
+                case QueuedToolEventType.Abort:
+                    QueuedAbort();
+                    break;
+                case QueuedToolEventType.MouseHold:
+                    QueuedMouseHold(args);
+                    break;
+                case QueuedToolEventType.Custom:
+                    QueuedCustomEvent(args);
+                    break;
+                default:
+                    throw new ArgumentException("invalid event in queue");
             }
         }
 
@@ -321,7 +358,14 @@ namespace pyrochild.effects.common
             Abort();
             disposed = true;
 
-            Thread thread = renderThread;
+            Thread thread;
+            lock (eventQueue)
+            {
+                stopping = true;
+                Monitor.PulseAll(eventQueue);
+                thread = renderThread;
+            }
+
             if (thread != null && thread != Thread.CurrentThread)
             {
                 thread.Join();

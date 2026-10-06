@@ -460,6 +460,78 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void One_background_thread_does_all_the_rendering_and_ends_with_the_renderer()
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(50, 50))
+            using (AutoResetEvent released = new AutoResetEvent(false))
+            {
+                List<Thread> threads = new List<Thread>();
+                LiquifyRenderer renderer = new LiquifyRenderer(mesh);
+                renderer.MouseUp += (s, e) =>
+                {
+                    threads.Add(Thread.CurrentThread);
+                    released.Set();
+                };
+
+                Point at = new Point(25, 25);
+                for (int round = 0; round < 5; ++round)
+                {
+                    renderer.AddEvent(Event(QueuedToolEventType.MouseDown, MouseButtons.Left, at, 4, LiquifyMode.Freeze));
+                    renderer.AddEvent(Event(QueuedToolEventType.MouseUp, MouseButtons.Left, at, 4, LiquifyMode.Freeze));
+                    Assert.True(released.WaitOne(TimeSpan.FromSeconds(5)), "the release in round " + round + " was never processed");
+
+                    // let the thread go idle between rounds
+                    Thread.Sleep(30);
+                }
+
+                Assert.Equal(5, threads.Count);
+                Assert.All(threads, t => Assert.Same(threads[0], t));
+                Assert.NotSame(Thread.CurrentThread, threads[0]);
+
+                // so a hung render can't keep the host from exiting
+                Assert.True(threads[0].IsBackground);
+
+                renderer.Dispose();
+                Assert.False(threads[0].IsAlive);
+            }
+        }
+
+        [Fact]
+        public void An_exception_while_rendering_is_reported_and_the_stroke_still_ends()
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(100, 100))
+            using (ManualResetEventSlim released = new ManualResetEventSlim())
+            {
+                List<Exception> reported = new List<Exception>();
+                int invalidations = 0;
+
+                LiquifyRenderer renderer = new LiquifyRenderer(mesh);
+                renderer.Error += (s, e) => reported.Add(e.Exception);
+                renderer.MouseUp += (s, e) => released.Set();
+                renderer.Invalidated += (s, e) =>
+                {
+                    if (Interlocked.Increment(ref invalidations) == 1)
+                    {
+                        throw new InvalidOperationException("went wrong");
+                    }
+                };
+
+                renderer.AddEvent(Event(QueuedToolEventType.MouseDown, MouseButtons.Left, new Point(30, 50), 20, LiquifyMode.Bloat, 1f));
+                renderer.AddEvent(Event(QueuedToolEventType.MouseMove, MouseButtons.Left, new Point(70, 50), 20, LiquifyMode.Bloat, 1f));
+                renderer.AddEvent(Event(QueuedToolEventType.MouseUp, MouseButtons.Left, new Point(70, 50), 20, LiquifyMode.Bloat, 1f));
+
+                Assert.True(released.Wait(TimeSpan.FromSeconds(15)), "the release was never processed");
+                renderer.Dispose();
+
+                Exception only = Assert.Single(reported);
+                Assert.Equal("went wrong", only.Message);
+
+                // the move after the one that failed was still rendered
+                Assert.True(invalidations >= 2, "nothing was rendered after the exception");
+            }
+        }
+
+        [Fact]
         public void Nothing_runs_after_the_renderer_is_disposed()
         {
             using (DisplacementMesh mesh = new DisplacementMesh(60, 60))

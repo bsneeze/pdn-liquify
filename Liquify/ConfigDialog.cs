@@ -369,6 +369,7 @@ namespace pyrochild.effects.liquify
 
             renderer.Invalidated += new InvalidateEventHandler(renderer_Invalidated);
             renderer.MouseUp += new QueuedToolEventHandler(renderer_MouseUp);
+            renderer.Error += renderer_Error;
 
             rendermodes = new Dictionary<Control, LiquifyMode>();
 
@@ -723,6 +724,36 @@ namespace pyrochild.effects.liquify
             }
 
             return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        private bool renderErrorShown;
+
+        // Runs on the render thread when the brush code throws. The renderer carries on, so the
+        // stroke still ends and can be undone.
+        void renderer_Error(object sender, ThreadExceptionEventArgs e)
+        {
+            if (closing)
+            {
+                return;
+            }
+
+            string message = "Something went wrong while the brush was being applied, so part of that stroke may be missing. It can be undone.\n\n" + e.Exception.Message;
+
+            try
+            {
+                this.BeginInvoke(new Action(() =>
+                {
+                    if (!closing && !renderErrorShown)
+                    {
+                        renderErrorShown = true;
+                        ConfirmDialog.Notify(this, this.Text, message, SystemIcons.Warning);
+                    }
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                // the window is already gone
+            }
         }
 
         void renderer_MouseUp(object sender, QueuedToolEventArgs e)
