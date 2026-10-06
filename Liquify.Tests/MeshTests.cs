@@ -27,6 +27,64 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public unsafe void Pixels_read_in_place_render_the_same_as_a_copy_of_them()
+        {
+            using (Surface source = TestHelpers.PositionSurface(120, 90))
+            using (Surface expected = new Surface(120, 90))
+            using (Surface result = new Surface(120, 90))
+            using (DisplacementMesh mesh = new DisplacementMesh(120, 90))
+            {
+                // stretched in places and squeezed in others, so both of RenderSupersampled's paths run
+                TestHelpers.Fill(mesh, (x, y) => new DisplacementVector(x * 0.7f - 30, (y - 45) * -0.4f));
+
+                BitmapSurface inPlace = new BitmapSurface((ColorBgra*)source.Scan0.VoidStar, source.Width, source.Height, source.Stride);
+
+                mesh.RenderSupersampled(expected, source, source.Bounds);
+                mesh.RenderSupersampled(result, inPlace, source.Bounds);
+
+                for (int y = 0; y < 90; ++y)
+                {
+                    for (int x = 0; x < 120; ++x)
+                    {
+                        Assert.True(expected[x, y] == result[x, y], "pixel " + x + "," + y);
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public unsafe void A_rectangle_can_be_rendered_into_memory_that_holds_only_that_rectangle()
+        {
+            Rectangle rect = new Rectangle(30, 20, 50, 40);
+
+            using (Surface source = TestHelpers.PositionSurface(120, 90))
+            using (Surface expected = new Surface(120, 90))
+            using (Surface result = new Surface(rect.Width + 2, rect.Height + 2)) // with a border to catch overruns
+            using (DisplacementMesh mesh = new DisplacementMesh(120, 90))
+            {
+                TestHelpers.Fill(mesh, (x, y) => new DisplacementVector(x * 0.7f - 30, (y - 45) * -0.4f));
+
+                ColorBgra untouched = ColorBgra.FromBgra(1, 2, 3, 4);
+                result.Fill(untouched);
+
+                BitmapSurface output = BitmapSurface.ForRect((ColorBgra*)result.GetPointPointer(1, 1), rect, result.Stride, source.Size);
+
+                mesh.RenderSupersampled(expected, source, rect);
+                mesh.RenderSupersampled(output, source, rect);
+
+                for (int y = 0; y < result.Height; ++y)
+                {
+                    for (int x = 0; x < result.Width; ++x)
+                    {
+                        bool border = x == 0 || y == 0 || x == result.Width - 1 || y == result.Height - 1;
+                        ColorBgra wanted = border ? untouched : expected[rect.X + x - 1, rect.Y + y - 1];
+                        Assert.True(wanted == result[x, y], "pixel " + x + "," + y);
+                    }
+                }
+            }
+        }
+
+        [Fact]
         public void A_constant_offset_pulls_pixels_from_that_far_away()
         {
             using (Surface source = TestHelpers.PositionSurface(100, 80))
