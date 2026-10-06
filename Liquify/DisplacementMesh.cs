@@ -401,6 +401,33 @@ namespace pyrochild.effects.liquify
         }
 
         /// <summary>
+        /// SaveRaw for a part of the mesh, filled out with zero vectors on the right and below to
+        /// a given size. LoadRaw reads it back into a mesh that size, with rect at its top left.
+        /// </summary>
+        internal unsafe void SaveRawPadded(Stream s, Rectangle rect, int toWidth, int toHeight)
+        {
+            if (rect.Width == toWidth && rect.Height == toHeight)
+            {
+                SaveRaw(s, rect);
+                return;
+            }
+
+            int rowBytes = rect.Width * sizeof(DisplacementVector);
+            byte[] zeros = new byte[toWidth * sizeof(DisplacementVector)];
+
+            for (int y = rect.Top; y < rect.Bottom; ++y)
+            {
+                s.Write(new ReadOnlySpan<byte>(GetPointAddressUnchecked(rect.Left, y), rowBytes));
+                s.Write(zeros, 0, zeros.Length - rowBytes);
+            }
+
+            for (int y = rect.Height; y < toHeight; ++y)
+            {
+                s.Write(zeros, 0, zeros.Length);
+            }
+        }
+
+        /// <summary>
         /// Reads back what SaveRaw wrote from a mesh of the same size.
         /// </summary>
         internal unsafe void LoadRaw(Stream s)

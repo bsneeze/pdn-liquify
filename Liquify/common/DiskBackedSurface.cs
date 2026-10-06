@@ -41,7 +41,7 @@ namespace pyrochild.effects.liquify
             state = State.Memory;
         }
 
-        private void Write(DisplacementMesh mesh, Rectangle rect)
+        private void Write(Action<Stream> save)
         {
             backingfile = Path.Combine(Path.GetTempPath(), "Liquify-" + Guid.NewGuid().ToString("N") + ".tmp");
             file = new FileStream(backingfile, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
@@ -52,7 +52,7 @@ namespace pyrochild.effects.liquify
                 using (DeflateStream ds = new DeflateStream(file, CompressionLevel.Fastest, true))
                 {
                     FailIfTesting();
-                    mesh.SaveRaw(ds, rect);
+                    save(ds);
                 }
 
                 // so a full disk shows up now and not when the data is wanted back
@@ -119,7 +119,29 @@ namespace pyrochild.effects.liquify
             DiskBackedSurface ret = new DiskBackedSurface();
             ret.width = rect.Width;
             ret.height = rect.Height;
-            ret.Write(mesh, rect);
+            ret.Write(stream => mesh.SaveRaw(stream, rect));
+            ret.state = State.Disk;
+            return ret;
+        }
+
+        /// <summary>
+        /// Writes several small pieces of mesh straight to disk as one surface: a column of
+        /// squares, slotSize on a side, with piece number i at the top left of square number i.
+        /// </summary>
+        /// <param name="sources">the mesh each piece is taken from</param>
+        /// <param name="rects">where in its mesh each piece is; none larger than a square</param>
+        public static DiskBackedSurface FromPieces(DisplacementMesh[] sources, Rectangle[] rects, int slotSize)
+        {
+            DiskBackedSurface ret = new DiskBackedSurface();
+            ret.width = slotSize;
+            ret.height = checked(slotSize * rects.Length);
+            ret.Write(stream =>
+            {
+                for (int i = 0; i < rects.Length; ++i)
+                {
+                    sources[i].SaveRawPadded(stream, rects[i], slotSize, slotSize);
+                }
+            });
             ret.state = State.Disk;
             return ret;
         }
@@ -161,7 +183,7 @@ namespace pyrochild.effects.liquify
             // the surface isn't modified once it has been written, so the file only needs writing once
             if (file == null)
             {
-                Write(surface, surface.Bounds);
+                Write(stream => surface.SaveRaw(stream));
             }
 
             surface.Dispose();

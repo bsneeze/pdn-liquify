@@ -297,6 +297,72 @@ namespace pyrochild.effects.liquify.tests
         }
 
         [Fact]
+        public void A_stroke_is_stored_as_the_tiles_it_touched_and_needs_no_memory_to_capture()
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(1000, 700))
+            using (HistoryStack history = new HistoryStack())
+            {
+                Edit(mesh, mesh.Bounds, 3, 20);
+
+                using (DisplacementMesh before = mesh.Clone())
+                {
+                    // dabs along a diagonal, ending in the corner where the tiles are cut short
+                    Rectangle bounds = Rectangle.Empty;
+                    for (int i = 0; i < 10; ++i)
+                    {
+                        Rectangle dab = new Rectangle(i * 98, i * 67, 30, 30);
+                        Assert.True(history.BeforeChange(mesh, dab));
+                        Edit(mesh, dab, 900 + i, 200);
+                        bounds = bounds.IsEmpty ? dab : Rectangle.Union(bounds, dab);
+                    }
+                    Rectangle corner = new Rectangle(980, 690, 20, 10);
+                    Assert.True(history.BeforeChange(mesh, corner));
+                    Edit(mesh, corner, 70, 9);
+                    bounds = Rectangle.Union(bounds, corner);
+
+                    long tileVectors = history.PendingVectorCount;
+
+                    // from here on there is no memory to be had
+                    RunOutOfMemoryAfter(history, 0);
+
+                    HistoryItem? item;
+                    Assert.Equal(HistoryFailure.None, history.CaptureChange(mesh, bounds, out item));
+                    Assert.True(item.HasValue);
+
+                    // a fraction of the rectangle around the stroke
+                    Assert.NotNull(item.Value.Tiles);
+                    long stored = (long)item.Value.Before.Width * item.Value.Before.Height;
+                    Assert.Equal(item.Value.Before.Size, item.Value.After.Size);
+                    Assert.True(stored >= tileVectors);
+                    Assert.True(stored * 5 < (long)bounds.Width * bounds.Height, stored + " vectors stored for " + bounds);
+
+                    history.Commit(item.Value);
+                    history.NewMesh = (width, height) => new DisplacementMesh(width, height);
+
+                    using (DisplacementMesh after = mesh.Clone())
+                    {
+                        history.StepBack(mesh);
+                        Assert.Null(TestHelpers.FirstDifference(before, mesh));
+
+                        history.StepForward(mesh);
+                        Assert.Null(TestHelpers.FirstDifference(after, mesh));
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void Recording_a_change_that_was_never_saved_adds_no_step()
+        {
+            using (DisplacementMesh mesh = new DisplacementMesh(100, 100))
+            using (HistoryStack history = new HistoryStack())
+            {
+                Assert.True(history.AddHistoryItem(mesh, new Rectangle(10, 10, 50, 50)));
+                Assert.False(history.CanStepBack);
+            }
+        }
+
+        [Fact]
         public void A_capture_that_fails_says_what_ran_out_and_puts_the_mesh_back()
         {
             const HistoryFailure expected = HistoryFailure.Disk;
@@ -429,10 +495,17 @@ namespace pyrochild.effects.liquify.tests
                     Assert.True(history.BeforeChange(mesh, stroke));
                     Edit(mesh, stroke, 900, 200);
 
-                    // no memory left for putting the step together
-                    RunOutOfMemoryAfter(history, 0);
-                    Assert.False(history.AddHistoryItem(mesh, stroke));
-                    Assert.Equal(HistoryFailure.Memory, history.LastFailure);
+                    // no room on the disk for the step
+                    DiskBackedSurface.TestFailWritesOnThisThread = true;
+                    try
+                    {
+                        Assert.False(history.AddHistoryItem(mesh, stroke));
+                    }
+                    finally
+                    {
+                        DiskBackedSurface.TestFailWritesOnThisThread = false;
+                    }
+                    Assert.Equal(HistoryFailure.Disk, history.LastFailure);
 
                     Assert.Null(TestHelpers.FirstDifference(start, mesh));
                     Assert.Equal(0, history.PendingVectorCount);

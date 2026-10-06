@@ -261,11 +261,23 @@ namespace pyrochild.effects.liquify
                         return HistoryFailure.None;
                     }
 
+                    if (beforeWhole == null && beforeTiles.Count == 0)
+                    {
+                        return HistoryFailure.None; // nothing was saved, so nothing can have changed
+                    }
+
                     DiskBackedSurface before = null;
                     try
                     {
-                        before = TakeBefore(mesh, rect);
-                        item = new HistoryItem(before, mesh, rect);
+                        if (beforeWhole == null)
+                        {
+                            item = CaptureTiles(mesh, rect);
+                        }
+                        else
+                        {
+                            before = TakeBefore(mesh, rect);
+                            item = new HistoryItem(before, mesh, rect);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -320,10 +332,44 @@ namespace pyrochild.effects.liquify
             }
         }
 
-        // The contents of rect as they were before the change in progress.
+        // A step made of the tiles that were saved for the change in progress: each as it was
+        // saved, and as it is in the mesh now. Both go straight to disk, so this needs no memory
+        // to speak of however large the change is.
+        private HistoryItem CaptureTiles(DisplacementMesh mesh, Rectangle rect)
+        {
+            long[] keys = new long[beforeTiles.Count];
+            beforeTiles.Keys.CopyTo(keys, 0);
+            Array.Sort(keys);
+
+            Rectangle[] tiles = new Rectangle[keys.Length];
+            Rectangle[] savedRects = new Rectangle[keys.Length];
+            DisplacementMesh[] saved = new DisplacementMesh[keys.Length];
+            DisplacementMesh[] current = new DisplacementMesh[keys.Length];
+
+            for (int i = 0; i < keys.Length; ++i)
+            {
+                tiles[i] = TileRect((int)(uint)keys[i], (int)(keys[i] >> 32), mesh);
+                savedRects[i] = new Rectangle(0, 0, tiles[i].Width, tiles[i].Height);
+                saved[i] = beforeTiles[keys[i]];
+                current[i] = mesh;
+            }
+
+            DiskBackedSurface before = DiskBackedSurface.FromPieces(saved, savedRects, tileSize);
+            try
+            {
+                return new HistoryItem(rect, tiles, before, DiskBackedSurface.FromPieces(current, tiles, tileSize));
+            }
+            catch
+            {
+                before.Dispose();
+                throw;
+            }
+        }
+
+        // The contents of rect as they were before a whole-mesh change in progress.
         private DiskBackedSurface TakeBefore(DisplacementMesh mesh, Rectangle rect)
         {
-            if (beforeWhole != null && rect == mesh.Bounds)
+            if (rect == mesh.Bounds)
             {
                 // it stays in beforeWhole until the item owns it, in case the item can't be made
                 return beforeWhole;
@@ -332,29 +378,8 @@ namespace pyrochild.effects.liquify
             DisplacementMesh piece = NewMesh(rect.Width, rect.Height);
             try
             {
-                if (beforeWhole != null)
-                {
-                    beforeWhole.ToMemory();
-                    piece.Copy(beforeWhole.Surface, Point.Empty, rect);
-                }
-                else
-                {
-                    // whatever no tile was saved for hasn't changed, so the mesh still has it
-                    piece.Copy(mesh, Point.Empty, rect);
-
-                    foreach (KeyValuePair<long, DisplacementMesh> saved in beforeTiles)
-                    {
-                        Rectangle tile = TileRect((int)(uint)saved.Key, (int)(saved.Key >> 32), mesh);
-                        Rectangle overlap = Rectangle.Intersect(tile, rect);
-                        if (overlap.Width > 0 && overlap.Height > 0)
-                        {
-                            piece.Copy(
-                                saved.Value,
-                                new Point(overlap.X - rect.X, overlap.Y - rect.Y),
-                                new Rectangle(overlap.X - tile.X, overlap.Y - tile.Y, overlap.Width, overlap.Height));
-                        }
-                    }
-                }
+                beforeWhole.ToMemory();
+                piece.Copy(beforeWhole.Surface, Point.Empty, rect);
 
                 DiskBackedSurface before = new DiskBackedSurface(piece, true);
                 piece = null; // it is the DiskBackedSurface's now
@@ -411,7 +436,7 @@ namespace pyrochild.effects.liquify
             }
 
             HistoryItem item = stack[step];
-            Apply(item.Before, item.DeltaRect, surface);
+            Apply(item.Before, item, surface);
             step--;
             return item.DeltaRect;
         }
@@ -425,15 +450,29 @@ namespace pyrochild.effects.liquify
             }
 
             HistoryItem item = stack[step + 1];
-            Apply(item.After, item.DeltaRect, surface);
+            Apply(item.After, item, surface);
             step++;
             return item.DeltaRect;
         }
 
-        private void Apply(DiskBackedSurface delta, Rectangle rect, DisplacementMesh surface)
+        // delta is the item's Before or After
+        private void Apply(DiskBackedSurface delta, HistoryItem item, DisplacementMesh surface)
         {
             delta.ToMemory();
-            surface.Copy(delta.Surface, rect.Location, delta.Bounds);
+
+            if (item.Tiles == null)
+            {
+                surface.Copy(delta.Surface, item.DeltaRect.Location, delta.Bounds);
+            }
+            else
+            {
+                for (int i = 0; i < item.Tiles.Length; ++i)
+                {
+                    Rectangle tile = item.Tiles[i];
+                    surface.Copy(delta.Surface, tile.Location, new Rectangle(0, i * tileSize, tile.Width, tile.Height));
+                }
+            }
+
             delta.ToDisk();
         }
 
