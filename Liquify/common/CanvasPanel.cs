@@ -456,8 +456,57 @@ namespace pyrochild.effects.common
             get { return strokeFromPen ? penPressure : 1f; }
         }
 
+        // A window with scrollbars gets panned by Windows when a pen or finger is dragged on it,
+        // which for a pen is meant to be a stroke. A finger still pans.
+        private const int WM_GESTURENOTIFY = 0x011A;
+        private const int WM_TABLET_QUERYSYSTEMGESTURESTATUS = 0x02CC;
+        private const int TABLET_DISABLE_PRESSANDHOLD = 0x00000001;
+        private const int TABLET_DISABLE_FLICKS = 0x00010000;
+        private const uint GID_PAN = 4;
+        private const uint GC_PAN = 1;
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct GESTURECONFIG
+        {
+            public uint dwID;
+            public uint dwWant;
+            public uint dwBlock;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetGestureConfig(IntPtr hwnd, uint reserved, uint count, ref GESTURECONFIG config, uint size);
+
+        private bool lastPointerWasPen;
+
+        private void AllowPanGesture(bool allow)
+        {
+            GESTURECONFIG config = new GESTURECONFIG();
+            config.dwID = GID_PAN;
+            config.dwWant = allow ? GC_PAN : 0;
+            config.dwBlock = allow ? 0 : GC_PAN;
+            SetGestureConfig(this.Handle, 0, 1, ref config, (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(GESTURECONFIG)));
+        }
+
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg == WM_POINTERDOWN)
+            {
+                int pointerType;
+                lastPointerWasPen = GetPointerType((uint)((long)m.WParam & 0xFFFF), out pointerType) && pointerType == PT_PEN;
+                AllowPanGesture(!lastPointerWasPen);
+            }
+            else if (m.Msg == WM_GESTURENOTIFY)
+            {
+                // the documented moment to set this, in case the one above was too early or too late
+                AllowPanGesture(!lastPointerWasPen);
+            }
+            else if (m.Msg == WM_TABLET_QUERYSYSTEMGESTURESTATUS)
+            {
+                // no press-and-hold wait and no flicks: a drag on the canvas starts at once
+                m.Result = (IntPtr)(TABLET_DISABLE_PRESSANDHOLD | TABLET_DISABLE_FLICKS);
+                return;
+            }
+
             if (m.Msg == WM_POINTERUPDATE || m.Msg == WM_POINTERDOWN || m.Msg == WM_POINTERUP || m.Msg == WM_POINTERLEAVE)
             {
                 // only noted: the message carries on, and comes back as mouse messages
@@ -512,10 +561,20 @@ namespace pyrochild.effects.common
             }
             else
             {
-                PerformMouseWheel(new MouseEventArgs(MouseButtons.None, 0, 0, 0, WheelDelta(m)));
+                // A pinch on a touchpad arrives as a wheel message marked as Ctrl+wheel. Not every
+                // source of those also makes the keyboard say Ctrl is down, so go by the message too.
+                int keys = (int)((long)m.WParam & 0xFFFF);
+                Keys modifiers = ModifierKeys;
+                if ((keys & MK_CONTROL) != 0) modifiers |= Keys.Control;
+                if ((keys & MK_SHIFT) != 0) modifiers |= Keys.Shift;
+
+                PerformMouseWheel(WheelDelta(m), modifiers);
                 m.Result = IntPtr.Zero;
             }
         }
+
+        private const int MK_SHIFT = 0x0004;
+        private const int MK_CONTROL = 0x0008;
 
         // Whether a wheel message, whoever it is addressed to, is meant for the canvas.
         private bool IsMouseOverForWheel()
@@ -2195,11 +2254,16 @@ namespace pyrochild.effects.common
 
         public void PerformMouseWheel(MouseEventArgs e)
         {
-            if ((ModifierKeys & Keys.Control) != Keys.None)
+            PerformMouseWheel(e.Delta, ModifierKeys);
+        }
+
+        private void PerformMouseWheel(int delta, Keys modifiers)
+        {
+            if ((modifiers & Keys.Control) != Keys.None)
             {
                 PointF documentmouselocation = new PointF(canvasmouselocation.X / scale, canvasmouselocation.Y / scale);
 
-                if (e.Delta > 0)
+                if (delta > 0)
                 {
                     ZoomIn();
                 }
@@ -2214,13 +2278,13 @@ namespace pyrochild.effects.common
                 if (canvashasmouse) //try to keep the mouse over the same virtual location on the document
                     SetScrollLocation(documentmouselocation);
             }
-            else if ((ModifierKeys & Keys.Shift) != Keys.None)
+            else if ((modifiers & Keys.Shift) != Keys.None)
             {
-                ScrollBy(-e.Delta, 0);
+                ScrollBy(-delta, 0);
             }
             else
             {
-                ScrollBy(0, -e.Delta);
+                ScrollBy(0, -delta);
             }
 
             AfterScroll(false);

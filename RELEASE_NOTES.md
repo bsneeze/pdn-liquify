@@ -22,6 +22,7 @@
 
 ### Better
 
+- **Pen strokes start at once.** Liquify no longer waits to see whether a pen touch is a press-and-hold.
 - **Sharper results.** Final render uses supersampling where the distortion squeezes the image together for a cleaner result with less jaggies.
 - **Faster.** Strokes and the preview use all processor cores, and scrolling and zooming stay smooth on large windows and 4K screens.
 - **No pause after a large stroke.** Saving a stroke for undo no longer freezes the window, and takes a fraction of the time and disk space.
@@ -38,6 +39,7 @@
 
 ### Fixed
 
+- With a pen, a stroke started straight away on an image large enough to scroll moved the view instead of drawing.
 - Hangs and crashes with very small or invalid brush sizes.
 - A corrupted mesh on very large images and on images one pixel wide.
 - A hang when closing the dialog in the middle of a stroke.
