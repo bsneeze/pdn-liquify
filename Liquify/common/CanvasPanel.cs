@@ -561,10 +561,20 @@ namespace pyrochild.effects.common
             }
             else
             {
-                PerformMouseWheel(new MouseEventArgs(MouseButtons.None, 0, 0, 0, WheelDelta(m)));
+                // A pinch on a touchpad arrives as a wheel message marked as Ctrl+wheel. Not every
+                // source of those also makes the keyboard say Ctrl is down, so go by the message too.
+                int keys = (int)((long)m.WParam & 0xFFFF);
+                Keys modifiers = ModifierKeys;
+                if ((keys & MK_CONTROL) != 0) modifiers |= Keys.Control;
+                if ((keys & MK_SHIFT) != 0) modifiers |= Keys.Shift;
+
+                PerformMouseWheel(WheelDelta(m), modifiers);
                 m.Result = IntPtr.Zero;
             }
         }
+
+        private const int MK_SHIFT = 0x0004;
+        private const int MK_CONTROL = 0x0008;
 
         // Whether a wheel message, whoever it is addressed to, is meant for the canvas.
         private bool IsMouseOverForWheel()
@@ -2244,11 +2254,16 @@ namespace pyrochild.effects.common
 
         public void PerformMouseWheel(MouseEventArgs e)
         {
-            if ((ModifierKeys & Keys.Control) != Keys.None)
+            PerformMouseWheel(e.Delta, ModifierKeys);
+        }
+
+        private void PerformMouseWheel(int delta, Keys modifiers)
+        {
+            if ((modifiers & Keys.Control) != Keys.None)
             {
                 PointF documentmouselocation = new PointF(canvasmouselocation.X / scale, canvasmouselocation.Y / scale);
 
-                if (e.Delta > 0)
+                if (delta > 0)
                 {
                     ZoomIn();
                 }
@@ -2263,13 +2278,13 @@ namespace pyrochild.effects.common
                 if (canvashasmouse) //try to keep the mouse over the same virtual location on the document
                     SetScrollLocation(documentmouselocation);
             }
-            else if ((ModifierKeys & Keys.Shift) != Keys.None)
+            else if ((modifiers & Keys.Shift) != Keys.None)
             {
-                ScrollBy(-e.Delta, 0);
+                ScrollBy(-delta, 0);
             }
             else
             {
-                ScrollBy(0, -e.Delta);
+                ScrollBy(0, -delta);
             }
 
             AfterScroll(false);

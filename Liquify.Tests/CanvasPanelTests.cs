@@ -492,6 +492,32 @@ namespace pyrochild.effects.liquify.tests
             });
         }
 
+        [Fact]
+        public void A_wheel_message_marked_as_ctrl_zooms_even_if_the_ctrl_key_is_not_down()
+        {
+            WithCanvas(1000, 800, canvas =>
+            {
+                const int WM_MOUSEWHEEL = 0x020A, MK_CONTROL = 0x0008;
+                canvas.ZoomFactor = 1f;
+
+                // what a touchpad pinch sends: wheel up with the control flag in the message
+                Message pinchOut = Message.Create(canvas.Handle, WM_MOUSEWHEEL, (IntPtr)((120 << 16) | MK_CONTROL), IntPtr.Zero);
+                canvas.HandleWheelMessage(ref pinchOut);
+                Assert.True(canvas.ZoomFactor > 1f, "zoom after pinch out: " + canvas.ZoomFactor);
+
+                Message pinchIn = Message.Create(canvas.Handle, WM_MOUSEWHEEL, (IntPtr)(unchecked((int)0xFF880000) | MK_CONTROL), IntPtr.Zero);
+                canvas.HandleWheelMessage(ref pinchIn);
+                Assert.Equal(1f, canvas.ZoomFactor);
+
+                // without the flag it is a scroll, and the zoom stays
+                canvas.ZoomFactor = 2f;
+                Message scroll = Message.Create(canvas.Handle, WM_MOUSEWHEEL, (IntPtr)(unchecked((int)0xFF880000)), IntPtr.Zero);
+                canvas.HandleWheelMessage(ref scroll);
+                Assert.Equal(2f, canvas.ZoomFactor);
+                Assert.True(canvas.ScrollPosition.Y > 0);
+            });
+        }
+
         // a 400x300 image: transparent on the left, half transparent in the middle, opaque on the right
         private static Surface PartlyTransparentSurface()
         {
