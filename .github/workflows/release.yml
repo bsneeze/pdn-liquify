@@ -5,7 +5,7 @@ name: Release
 #   5.1  .  2610  .  0614
 #   |       |        the day and hour (UTC) of the commit being released
 #   |       its year and month
-#   VersionPrefix in Liquify.csproj: the Paint.NET version this is built for
+#   VersionPrefix in the plugin's project: the Paint.NET version this is built for
 #
 # If that version has been released already, the hour is moved on by one until it is free.
 
@@ -13,16 +13,32 @@ on:
   workflow_dispatch:
     inputs:
       beta:
-        description: Beta (the Debug build, which shows up in Paint.NET as "Liquify BETA"), published as a pre-release
+        description: Beta (shows up in Paint.NET with BETA after its name), published as a pre-release
         type: boolean
         default: false
 
 permissions:
   contents: write
+  # for the build provenance attestation
+  id-token: write
+  attestations: write
+
+# The only lines that differ between plugins. The build options further down (PdnDir,
+# EffectsDir, BuildStamp, Beta) are named the same in every plugin's project.
+env:
+  SOLUTION: Liquify.sln
+  PROJECT: Liquify/Liquify.csproj
+  PLUGIN_NAME: Liquify # the dll's name without .dll; may contain spaces
+  ASSET_NAME: Liquify # the same without spaces, for file names
 
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 20
+
+    # Protection rules (who may approve, which branches) are set on these in the repository's
+    # settings, where a branch can't edit them away. Without any, they do nothing.
+    environment: ${{ inputs.beta && 'beta' || 'release' }}
 
     steps:
       - uses: actions/checkout@v7
@@ -40,7 +56,7 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          [xml]$project = Get-Content Liquify/Liquify.csproj
+          [xml]$project = Get-Content $env:PROJECT
           $prefix = ($project.Project.PropertyGroup.VersionPrefix | Where-Object { $_ } | Select-Object -First 1).Trim()
 
           $committed = [DateTimeOffset]::FromUnixTimeSeconds([long](git log -1 --format=%ct)).UtcDateTime
@@ -62,7 +78,6 @@ jobs:
           "stamp=$stamp" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
-          "configuration=$(if ('${{ inputs.beta }}' -eq 'true') { 'Debug' } else { 'Release' })" >> $env:GITHUB_OUTPUT
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -77,21 +92,25 @@ jobs:
         run: |
           $properties = @(
             "-p:PdnDir=${{ steps.pdn.outputs.dir }}",
-            "-p:LiquifyEffectsDir=$(Join-Path $env:RUNNER_TEMP 'effects\')",
-            "-p:LiquifyBuildStamp=${{ steps.version.outputs.stamp }}")
+            "-p:EffectsDir=$(Join-Path $env:RUNNER_TEMP 'effects\')",
+            "-p:BuildStamp=${{ steps.version.outputs.stamp }}")
 
-          dotnet build Liquify.sln -c ${{ steps.version.outputs.configuration }} --nologo @properties
+          # a beta is the same Release build, labelled
+          if ('${{ inputs.beta }}' -eq 'true') { $properties += '-p:Beta=true' }
+
+          dotnet build $env:SOLUTION -c Release --nologo @properties
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          dotnet test Liquify.sln -c ${{ steps.version.outputs.configuration }} --no-build --nologo @properties
+          dotnet test $env:SOLUTION -c Release --no-build --nologo @properties
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Collect the files to publish
         id: files
         shell: pwsh
         run: |
-          $dll = Get-ChildItem "Liquify/bin/${{ steps.version.outputs.configuration }}" -Recurse -Filter Liquify.dll | Select-Object -First 1
-          if (-not $dll) { throw 'Liquify.dll was not built' }
+          $name = $env:PLUGIN_NAME
+          $dll = Get-ChildItem (Join-Path (Split-Path $env:PROJECT) 'bin/Release') -Recurse -Filter "$name.dll" | Select-Object -First 1
+          if (-not $dll) { throw "$name.dll was not built" }
 
           # the version Windows will show for it must be the one being released
           $built = [version]$dll.VersionInfo.FileVersion
@@ -101,12 +120,21 @@ jobs:
           # The zip carries the license with the plugin: it holds the notices that have to go
           # wherever the plugin does, for this code and for what it includes from others.
           $out = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'release')
-          Copy-Item $dll.FullName (Join-Path $out 'Liquify.dll')
+          Copy-Item $dll.FullName (Join-Path $out "$name.dll")
           Copy-Item LICENSE (Join-Path $out 'LICENSE.txt')
-          Compress-Archive (Join-Path $out 'Liquify.dll'), (Join-Path $out 'LICENSE.txt') (Join-Path $out 'Liquify-${{ steps.version.outputs.version }}.zip')
+          $zip = Join-Path $out "$env:ASSET_NAME-${{ steps.version.outputs.version }}.zip"
+          Compress-Archive (Join-Path $out "$name.dll"), (Join-Path $out 'LICENSE.txt') $zip
 
           Set-Content (Join-Path $out 'version.txt') '${{ steps.version.outputs.version }}' -NoNewline -Encoding ascii
           "dir=$out" >> $env:GITHUB_OUTPUT
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+          "zipGlob=$($zip.Replace('\', '/'))" >> $env:GITHUB_OUTPUT
+
+      # A signed record that this zip was built by this workflow from this commit.
+      - name: Attest the zip
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ${{ steps.files.outputs.zipGlob }}
 
       # The notes are the top section of RELEASE_NOTES.md if the repository has one; otherwise
       # GitHub lists the changes since the last release.
@@ -118,10 +146,10 @@ jobs:
           $out = '${{ steps.files.outputs.dir }}'
           $arguments = @(
             'release', 'create', '${{ steps.version.outputs.tag }}',
-            (Join-Path $out 'Liquify-${{ steps.version.outputs.version }}.zip'),
+            '${{ steps.files.outputs.zip }}',
             (Join-Path $out 'version.txt'),
             '--target', $env:GITHUB_SHA,
-            '--title', 'Liquify ${{ steps.version.outputs.version }}')
+            '--title', "$env:PLUGIN_NAME ${{ steps.version.outputs.version }}")
 
           if ('${{ inputs.beta }}' -eq 'true') { $arguments += '--prerelease' }
 
@@ -132,13 +160,35 @@ jobs:
             if ($section.Success -and $section.Groups[1].Value.Trim()) { $notes = $section.Groups[1].Value.Trim() }
           }
 
+          $zipName = Split-Path '${{ steps.files.outputs.zip }}' -Leaf
+          $hash = (Get-FileHash '${{ steps.files.outputs.zip }}' -Algorithm SHA256).Hash.ToLower()
+          $verify = "SHA-256 of ``$zipName``: ``$hash``. To check that it was built here: ``gh attestation verify $zipName --repo ${{ github.repository }}``"
+
           if ($notes) {
             $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
-            Set-Content $notesFile $notes -Encoding utf8
+            Set-Content $notesFile "$notes`n`n$verify" -Encoding utf8
             $arguments += @('--notes-file', $notesFile)
           } else {
-            $arguments += '--generate-notes'
+            $arguments += @('--generate-notes', '--notes', $verify)
           }
 
           gh @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # The plugin pack's repository then opens a pull request that moves the pack to this
+      # release, if the pack carries this plugin. It is private, so starting its workflow takes a
+      # token of its own (the secret INSTALLER_TRIGGER_TOKEN: actions, read and write, on that
+      # repository only). A repository without the secret is taken not to be in the pack. The
+      # release above is already out either way; the workflow can be run by hand there instead.
+      - name: Tell the plugin pack
+        if: ${{ !inputs.beta }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.INSTALLER_TRIGGER_TOKEN }}
+        run: |
+          if (-not $env:GH_TOKEN) {
+            '::warning::The secret INSTALLER_TRIGGER_TOKEN is not set, so the plugin pack was not told about this release.'
+            exit 0
+          }
+          gh workflow run update-plugins.yml --repo bsneeze/pdn-pyrochild-installer
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -76,7 +76,7 @@ dotnet build Liquify.sln -c Release
 
 - The project references Paint.NET's assemblies under `C:\Program Files\Paint.NET\`. If it is installed elsewhere, add `-p:PdnDir=<folder>\`.
 - The build copies `Liquify.dll` into your Paint.NET effects folder. Close Paint.NET first, or the copy fails with a warning.
-- A Debug build names the effect "Liquify BETA", so it can be told apart from a Release build in the menu.
+- A Debug build names the effect "Liquify DEBUG", so it can be told apart from a Release build in the menu. It isn't optimized, so the brush and the canvas are several times slower than in a Release build.
 
 Run the tests with:
 

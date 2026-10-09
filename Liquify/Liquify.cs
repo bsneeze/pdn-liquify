@@ -19,8 +19,11 @@ namespace pyrochild.effects.liquify
             get
             {
                 string name = RawName;
-#if DEBUG
+                // so that a beta or a developer's build can be told from a release in the menu
+#if BETA
                 name += " BETA";
+#elif DEBUG
+                name += " DEBUG";
 #endif
                 return name;
             }

@@ -243,8 +243,8 @@ namespace pyrochild.effects.liquify
 
         private const string repository = "bsneeze/pdn-liquify";
 
-        // the Debug build is what gets released as a beta, and is told about newer betas as well
-#if DEBUG
+        // a beta is told about newer betas as well
+#if BETA
         private const string betaRepository = repository;
 #else
         private const string betaRepository = null;

@@ -7,6 +7,9 @@ inputs:
   version:
     description: The Paint.NET release to build against (a tag of paintdotnet/release without the "v").
     default: '5.1.12'
+  sha256:
+    description: SHA-256 of that release's portable x64 zip. Change it together with the version.
+    default: 'd5ae7043f2fb9d365b48dfe243a2aca1c74924de99b04b6445916c95354aefa3'
 
 outputs:
   dir:
@@ -21,7 +24,7 @@ runs:
       uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}\paintdotnet
-        key: paintdotnet-portable-x64-${{ inputs.version }}
+        key: paintdotnet-portable-x64-${{ inputs.version }}-${{ inputs.sha256 }}
 
     - name: Download and unpack
       if: steps.cache.outputs.cache-hit != 'true'
@@ -31,6 +34,14 @@ runs:
         $version = '${{ inputs.version }}'
         $zip = Join-Path $env:RUNNER_TEMP 'paintdotnet.zip'
         Invoke-WebRequest "https://github.com/paintdotnet/release/releases/download/v$version/paint.net.$version.portable.x64.zip" -OutFile $zip
+
+        $expected = '${{ inputs.sha256 }}'
+        $actual = (Get-FileHash $zip -Algorithm SHA256).Hash
+        if (-not $expected -or $actual -ne $expected) {
+          Remove-Item $zip
+          throw "paint.net.$version.portable.x64.zip has SHA-256 $actual, expected '$expected'"
+        }
+
         Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'paintdotnet') -Force
         Remove-Item $zip
 

@@ -7,9 +7,13 @@
     <AssemblyName>Liquify</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
-    <!-- Debug builds are optimized too. The mesh and canvas loops are several times slower without it,
-         which makes the "BETA" build feel much worse than what ships. Set to false to step through code. -->
-    <Optimize>true</Optimize>
+    <!-- PdnDir, EffectsDir, BuildStamp and Beta are named the same in every plugin, so that the
+         workflows in .github only differ between them in the few names at the top of each. -->
+
+    <!-- A beta is the Release build with this set (-p:Beta=true; see .github/workflows/release.yml),
+         so that testers run the same code as a release. It names the effect "Liquify BETA" and makes
+         the update check look for newer betas too. -->
+    <DefineConstants Condition="'$(Beta)' == 'true'">$(DefineConstants);BETA</DefineConstants>
 
     <!-- Where Paint.NET is installed. Override with -p:PdnDir=...\ (keep the trailing backslash). -->
     <PdnDir Condition="'$(PdnDir)' == ''">C:\Program Files\Paint.NET\</PdnDir>
@@ -25,13 +29,13 @@
     <!--
       VersionPrefix is the Paint.NET version this is built for. The rest, yyMM.ddHH, tells builds
       apart: the time of the build, unless a release passes the stamp worked out from its commit
-      (-p:LiquifyBuildStamp=2610.0614; see .github/workflows/release.yml).
+      (-p:BuildStamp=2610.0614; see .github/workflows/release.yml).
     -->
     <VersionPrefix>5.1</VersionPrefix>
     <!-- Only a build given its stamp checks for updates: see UpdateChecker. -->
-    <DefineConstants Condition="'$(LiquifyBuildStamp)' != ''">$(DefineConstants);RELEASED_BUILD</DefineConstants>
-    <LiquifyBuildStamp Condition="'$(LiquifyBuildStamp)' == ''">$([System.DateTime]::Now.ToString(yyMM)).$([System.DateTime]::Now.ToString(ddHH))</LiquifyBuildStamp>
-    <AssemblyVersion>$(VersionPrefix).$(LiquifyBuildStamp)</AssemblyVersion>
+    <DefineConstants Condition="'$(BuildStamp)' != ''">$(DefineConstants);RELEASED_BUILD</DefineConstants>
+    <BuildStamp Condition="'$(BuildStamp)' == ''">$([System.DateTime]::Now.ToString(yyMM)).$([System.DateTime]::Now.ToString(ddHH))</BuildStamp>
+    <AssemblyVersion>$(VersionPrefix).$(BuildStamp)</AssemblyVersion>
     <FileVersion>$(AssemblyVersion)</FileVersion>
   </PropertyGroup>
 
@@ -117,12 +121,12 @@
 
 
   <PropertyGroup>
-    <LiquifyEffectsDir>$(USERPROFILE)\Documents\paint.net App Files\Effects\</LiquifyEffectsDir>
+    <EffectsDir Condition="'$(EffectsDir)' == ''">$(USERPROFILE)\Documents\paint.net App Files\Effects\</EffectsDir>
   </PropertyGroup>
 
-  <Target Name="LiquifyCopyToEffectsFolder" AfterTargets="Build">
-    <MakeDir Directories="$(LiquifyEffectsDir)" Condition="!Exists('$(LiquifyEffectsDir)')" ContinueOnError="WarnAndContinue" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(LiquifyEffectsDir)" ContinueOnError="WarnAndContinue" />
+  <Target Name="CopyToEffectsFolder" AfterTargets="Build">
+    <MakeDir Directories="$(EffectsDir)" Condition="!Exists('$(EffectsDir)')" ContinueOnError="WarnAndContinue" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(EffectsDir)" ContinueOnError="WarnAndContinue" />
   </Target>
 
 </Project>
