@@ -269,10 +269,34 @@ namespace pyrochild.effects.liquify
         private bool updateAvailable;
         private AvailableUpdate update;
 
-        // The setting, which goes after the donate link, and a banner above the canvas that only
-        // shows when there is a newer release.
+        private LinkLabel help;
+
+        // Help is the "Using it" part of the README, which says what the tooltips have no room for.
+        private void ShowHelp()
+        {
+            LaunchUrl("https://github.com/" + repository + "#using-it");
+        }
+
+        // F1. Windows turns the key into a help request of its own, whatever is done with the key
+        // press, and passes it up from the focused control to this form and then to the form's
+        // owner. Answering it here is what stops Paint.NET's own help opening as well.
+        protected override void OnHelpRequested(HelpEventArgs hevent)
+        {
+            ShowHelp();
+            hevent.Handled = true;
+        }
+
+        // The help link and the update setting, which go after the donate link, and a banner
+        // above the canvas that only shows when there is a newer release.
         private void AddUpdateItems()
         {
+            help = new LinkLabel();
+            help.Text = "Help";
+            help.AutoSize = true;
+            help.LinkClicked += (sender, e) => ShowHelp();
+            tooltip.SetToolTip(help, "How to use Liquify (F1)");
+            panel1.Controls.Add(help);
+
             checkForUpdates = new CheckBox();
             checkForUpdates.Text = "Check for updates";
             checkForUpdates.AutoSize = true;
@@ -342,14 +366,15 @@ namespace pyrochild.effects.liquify
             updateBanner.Visible = available;
         }
 
-        // The donate link and the update setting, then the status line in the space left before
-        // the buttons, wherever the font and the DPI have put them.
+        // The donate link, the help link and the update setting, then the status line in the space
+        // left before the buttons, wherever the font and the DPI have put them.
         private void LayoutStatusLine()
         {
             int gap = (int)Math.Round(10 * DpiScale);
             int middle = donate.Top + donate.Height / 2;
 
-            checkForUpdates.Location = new Point(donate.Right + gap, middle - checkForUpdates.Height / 2);
+            help.Location = new Point(donate.Right + gap, donate.Top);
+            checkForUpdates.Location = new Point(help.Right + gap, middle - checkForUpdates.Height / 2);
             int right = checkForUpdates.Right;
 
             status.SetBounds(right + gap, 0, Math.Max(0, ok.Left - right - 2 * gap), 0,

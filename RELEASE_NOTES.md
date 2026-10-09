@@ -19,6 +19,7 @@
 - **Live color preview** when picking a background color.
 - **Remembered settings.** The grid, the backgrounds, the layers-above setting and the window's size and position are remembered along with the brush, until Paint.NET is closed.
 - **A prompt before discarding** changes on Cancel, Esc or the close box.
+- **Help.** F1, or the Help link at the bottom of the window, opens the instructions.
 - **Update check.** A banner above the image says when the plugin pack has a newer version. Liquify finds out by downloading a small file from GitHub when it opens, the first time after Paint.NET starts. The Check for updates box at the bottom of the window turns it off.
 
 ### Better

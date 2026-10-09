@@ -10,6 +10,8 @@ It needs Paint.NET 5.
 2. Copy `Liquify.dll` into `Documents\paint.net App Files\Effects\`.
 3. Start Paint.NET. The effect is under **Effects > Tools > Liquify**.
 
+<!-- The plugin's Help link and F1 open this page at #using-it (ShowHelp in ConfigDialog.cs).
+     Renaming this heading changes the anchor and breaks them. -->
 ## Using it
 
 Liquify works on the current layer. Pick a tool on the left, set the brush on the toolbar, and drag on the image. Nothing is applied to the layer until you press OK.
@@ -47,6 +49,7 @@ The buttons under the tools reset all distortion, thaw everything, invert the fr
 | See the original | Hold `O`, or hold the **Original** button |
 | See the whole document | Hold `A`, or hold the **All layers** button |
 | Undo / redo | `Ctrl+Z` / `Ctrl+Y` or `Ctrl+Shift+Z` |
+| Open this page | `F1`, or the **Help** link at the bottom of the window |
 
 The **View** menu controls what the canvas shows besides the image:
 
