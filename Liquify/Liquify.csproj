@@ -22,7 +22,10 @@
 
     <Product>Liquify</Product>
     <AssemblyTitle>Liquify</AssemblyTitle>
-    <Description>Paint.NET Plugin</Description>
+    <!-- The Plugin Browser plugin searches the description, and the keywords below it, which it
+         reads from AssemblyConfiguration. The SDK would otherwise put "Debug" or "Release" there. -->
+    <Description>Distorts an image as if it were liquid: push, twist, bloat and pucker it with a brush.</Description>
+    <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
     <Company>Zach Walker, a.k.a. pyrochild</Company>
     <Copyright>Copyright © 2010-2026 Zach Walker</Copyright>
 
@@ -38,6 +41,12 @@
     <AssemblyVersion>$(VersionPrefix).$(BuildStamp)</AssemblyVersion>
     <FileVersion>$(AssemblyVersion)</FileVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyConfigurationAttribute">
+      <_Parameter1>liquify|liquefy|warp|distort|push|smear|twist|swirl|bloat|bulge|pucker|pinch|reconstruct|freeze|mask|mesh|reshape|retouch</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 
   <ItemGroup>
     <!-- lets the test project use internal types such as LiquifyRenderer -->
@@ -117,6 +126,12 @@
     <EmbeddedResource Include="images\clearmask.png" />
     <EmbeddedResource Include="images\invertmask.png" />
     <EmbeddedResource Include="images\resetall.png" />
+
+    <!-- The Plugin Browser plugin shows this as the plugin's preview: 200 x 150, found by the
+         ".sample." in its name. Before and after, made with the brush code itself (bloat on the
+         eyes, push on the corners of the mouth). The picture is Leonardo's Mona Lisa, which is in
+         the public domain, from https://commons.wikimedia.org/wiki/File:Mona_Lisa,_by_Leonardo_da_Vinci,_from_C2RMF_retouched.jpg -->
+    <EmbeddedResource Include="images\Liquify.sample.png" />
   </ItemGroup>
 
 

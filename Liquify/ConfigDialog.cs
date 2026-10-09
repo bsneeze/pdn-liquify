@@ -85,9 +85,20 @@ namespace pyrochild.effects.liquify
         // RenderScans is the selection's actual shape; RenderBounds is only its bounding box.
         private PdnRegion CreateSelectionRegion()
         {
-            Rectangle[] scans = Environment.Selection.RenderScans
-                .Select(r => new Rectangle(r.X, r.Y, r.Width, r.Height))
-                .ToArray();
+            Rectangle[] scans;
+            try
+            {
+                scans = Environment.Selection.RenderScans
+                    .Select(r => new Rectangle(r.X, r.Y, r.Width, r.Height))
+                    .ToArray();
+            }
+            catch (InvalidOperationException)
+            {
+                // Something other than Paint.NET's own menu opened the dialog (the Plugin Browser
+                // plugin does), and the selection hasn't been set up. Left alone, this took
+                // Paint.NET down. Show the whole image as selected.
+                scans = new Rectangle[] { source.Bounds };
+            }
 
             using (System.Drawing.Drawing2D.GraphicsPath path = new System.Drawing.Drawing2D.GraphicsPath(System.Drawing.Drawing2D.FillMode.Winding))
             {
