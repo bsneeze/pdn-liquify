@@ -1302,7 +1302,7 @@ namespace pyrochild.effects.liquify
 
         private void donate_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            LaunchUrl("https://forums.paint.net/index.php?showtopic=7291");
+            LaunchUrl("https://www.paypal.com/donate/?hosted_button_id=NEGP9TVWH7WV8");
         }
 
         private void ConfigDialog_Load(object sender, EventArgs e)
