@@ -105,14 +105,7 @@ namespace pyrochild.effects.liquify
             this.Load += (themeSender, themeArgs) => ThemeHelper.Apply(this);
             this.Shown += (themeSender, themeArgs) => ThemeHelper.Apply(this);
 
-            // the status line fills the space between the link and the buttons, wherever the font
-            // and the DPI have put them
-            this.Load += (statusSender, statusArgs) =>
-            {
-                int gap = (int)Math.Round(10 * DpiScale);
-                status.SetBounds(donate.Right + gap, 0, Math.Max(0, ok.Left - donate.Right - 2 * gap), 0,
-                    BoundsSpecified.X | BoundsSpecified.Width);
-            };
+            this.Load += (statusSender, statusArgs) => LayoutStatusLine();
 
             // The window gets its final size (and may be maximized) after Load, so keep fitting the
             // image as the canvas resizes until the dialog has been shown. That way the first thing
@@ -216,6 +209,7 @@ namespace pyrochild.effects.liquify
             }
 
             AddBackgroundMenus();
+            AddUpdateItems();
             InitializeUIImages();
             InitializeTooltips();
             UpdateStatus();
@@ -245,6 +239,126 @@ namespace pyrochild.effects.liquify
             item.DropDownItems.Add(new ToolStripMenuItem("Transparent"));
             item.DropDownOpening += (sender, e) => canvas.FillBackgroundMenu(item.DropDown, onCanvas);
             return item;
+        }
+
+        private const string repository = "bsneeze/pdn-liquify";
+
+        // the Debug build is what gets released as a beta, and is told about newer betas as well
+#if DEBUG
+        private const string betaRepository = repository;
+#else
+        private const string betaRepository = null;
+#endif
+
+        // An update is a plugin pack that carries a newer Liquify; a release here that isn't in
+        // a pack yet is not one. What is new in it is on the page of this repository's release of
+        // that version. Static, so that the check is made once for as long as Paint.NET runs.
+        private static readonly UpdateChecker updates = new UpdateChecker(
+            "Liquify", typeof(Liquify).Assembly.GetName().Version,
+            "bsneeze/pdn-pyrochild-plugin-pack", "Liquify.version.txt", betaRepository,
+            version => "https://github.com/" + repository + "/releases/tag/v" + FormatVersion(version));
+
+        // the last part is ddHH, written with its leading zero in tags and everywhere else
+        private static string FormatVersion(Version version)
+        {
+            return string.Format("{0}.{1:0000}", version.ToString(3), version.Revision);
+        }
+
+        private CheckBox checkForUpdates;
+        private UpdateBanner updateBanner;
+        private bool updateAvailable;
+        private AvailableUpdate update;
+
+        // The setting, which goes after the donate link, and a banner above the canvas that only
+        // shows when there is a newer release.
+        private void AddUpdateItems()
+        {
+            checkForUpdates = new CheckBox();
+            checkForUpdates.Text = "Check for updates";
+            checkForUpdates.AutoSize = true;
+            checkForUpdates.Checked = updates.Enabled;
+            checkForUpdates.CheckedChanged += (sender, e) =>
+            {
+                updates.Enabled = checkForUpdates.Checked;
+                ShowUpdateIfNewer();
+            };
+            tooltip.SetToolTip(checkForUpdates, "Look for a newer version on GitHub when Liquify opens");
+
+            panel1.Controls.Add(checkForUpdates);
+
+            updateBanner = new UpdateBanner();
+            updateBanner.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            updateBanner.Visible = false;
+            updateBanner.GetClicked += (sender, e) => LaunchUrl(update.PageUrl);
+            updateBanner.WhatsNewClicked += (sender, e) => LaunchUrl(update.NotesUrl);
+            updateBanner.NotNowClicked += (sender, e) =>
+            {
+                updates.Snooze();
+                SetUpdateAvailable(false);
+            };
+            // closed for now: it is back the next time the dialog opens
+            updateBanner.CloseClicked += (sender, e) => SetUpdateAvailable(false);
+            this.Controls.Add(updateBanner);
+
+            this.Shown += (sender, e) => ShowUpdateIfNewer();
+        }
+
+        private async void ShowUpdateIfNewer()
+        {
+            SetUpdateAvailable(false);
+            if (!checkForUpdates.Checked)
+            {
+                return;
+            }
+
+            AvailableUpdate found = await updates.FindNewerAsync();
+
+            if (found != null && !IsDisposed && checkForUpdates.Checked && !updates.Snoozed)
+            {
+                update = found;
+
+                updateBanner.Message = string.Format("A new version of Liquify is available! ({0})", FormatVersion(found.Version));
+                updateBanner.ShowWhatsNew = found.NotesUrl != null;
+                SetUpdateAvailable(true);
+            }
+        }
+
+        private int bannerHeight;
+
+        // The banner takes its room from the top of the canvas, and gives it back.
+        private void SetUpdateAvailable(bool available)
+        {
+            if (updateAvailable == available)
+            {
+                return;
+            }
+            updateAvailable = available;
+
+            int top = canvas.Top - bannerHeight;
+            bannerHeight = available ? updateBanner.PreferredBannerHeight : 0;
+
+            updateBanner.SetBounds(canvas.Left, top, canvas.Width, bannerHeight);
+            canvas.SetBounds(canvas.Left, top + bannerHeight, canvas.Width, canvas.Bottom - (top + bannerHeight));
+            updateBanner.Visible = available;
+        }
+
+        // The donate link and the update setting, then the status line in the space left before
+        // the buttons, wherever the font and the DPI have put them.
+        private void LayoutStatusLine()
+        {
+            int gap = (int)Math.Round(10 * DpiScale);
+            int middle = donate.Top + donate.Height / 2;
+
+            checkForUpdates.Location = new Point(donate.Right + gap, middle - checkForUpdates.Height / 2);
+            int right = checkForUpdates.Right;
+
+            status.SetBounds(right + gap, 0, Math.Max(0, ok.Left - right - 2 * gap), 0,
+                BoundsSpecified.X | BoundsSpecified.Width);
+        }
+
+        private void LaunchUrl(string url)
+        {
+            ((PaintDotNet.AppModel.IShellService)Services.GetService(typeof(PaintDotNet.AppModel.IShellService))).LaunchUrl(this, url);
         }
 
         private void InitializeUIImages()
@@ -1152,7 +1266,7 @@ namespace pyrochild.effects.liquify
 
         private void donate_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            ((PaintDotNet.AppModel.IShellService)Services.GetService(typeof(PaintDotNet.AppModel.IShellService))).LaunchUrl(this, "https://forums.getpaint.net/index.php?showtopic=7291");
+            LaunchUrl("https://forums.paint.net/index.php?showtopic=7291");
         }
 
         private void ConfigDialog_Load(object sender, EventArgs e)
@@ -1756,6 +1870,7 @@ namespace pyrochild.effects.liquify
                     Pressure * e.Pressure, // pen pressure, 1 for a mouse
                     Density,
                     ModeFor(e)));
+
         }
 
 

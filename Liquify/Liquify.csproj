@@ -28,6 +28,8 @@
       (-p:LiquifyBuildStamp=2610.0614; see .github/workflows/release.yml).
     -->
     <VersionPrefix>5.1</VersionPrefix>
+    <!-- Only a build given its stamp checks for updates: see UpdateChecker. -->
+    <DefineConstants Condition="'$(LiquifyBuildStamp)' != ''">$(DefineConstants);RELEASED_BUILD</DefineConstants>
     <LiquifyBuildStamp Condition="'$(LiquifyBuildStamp)' == ''">$([System.DateTime]::Now.ToString(yyMM)).$([System.DateTime]::Now.ToString(ddHH))</LiquifyBuildStamp>
     <AssemblyVersion>$(VersionPrefix).$(LiquifyBuildStamp)</AssemblyVersion>
     <FileVersion>$(AssemblyVersion)</FileVersion>

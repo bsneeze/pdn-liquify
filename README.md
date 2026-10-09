@@ -62,6 +62,10 @@ The background choices are also on the canvas's right-click menu. The brush sett
 
 **Save mesh** and **Load mesh** write and read the distortion as a `.msh` file, so it can be applied again or to another image. The format is the one Photoshop's Liquify uses, so meshes can be exchanged with it. Frozen areas are not part of the file.
 
+### Updates
+
+When you open Liquify, it fetches a small text file from the latest [pyrochild plugin pack](https://github.com/bsneeze/pdn-pyrochild-plugin-pack/releases/latest) on GitHub to see whether that has a newer version. It does this only the first time Liquify is opened after Paint.NET starts, and not at all if Liquify isn't opened. If it has, a banner above the image says so, with links to see what's new and to get it. **Not now** hides the banner for three days; the ✕ closes it until Liquify is next opened. A beta build also looks at this project's releases for a newer beta. Untick **Check for updates** at the bottom of the window to turn it off.
+
 ## Building
 
 You need the .NET 9 SDK and Paint.NET 5 installed.
