@@ -1,7 +1,10 @@
 name: Build and test
 
+# Pushes are only built on master: a push to a branch with a pull request open would otherwise
+# be built twice, once as the push and once as the pull request.
 on:
   push:
+    branches: [master]
   pull_request:
 
 # a newer push to the same branch makes the older run pointless
@@ -9,9 +12,21 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# The only lines that differ between plugins. The build options further down (PdnDir,
+# EffectsDir) are named the same in every plugin's project.
+env:
+  SOLUTION: Liquify.sln
+  PROJECT_DIR: Liquify
+  PLUGIN_NAME: Liquify # the dll's name without .dll; may contain spaces
+  ASSET_NAME: Liquify # the same without spaces, for file names
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v7
@@ -30,7 +45,7 @@ jobs:
         run: |
           $effects = Join-Path $env:RUNNER_TEMP 'effects\'
           foreach ($configuration in 'Debug', 'Release') {
-            dotnet build Liquify.sln -c $configuration --nologo "-p:PdnDir=${{ steps.pdn.outputs.dir }}" "-p:LiquifyEffectsDir=$effects"
+            dotnet build $env:SOLUTION -c $configuration --nologo "-p:PdnDir=${{ steps.pdn.outputs.dir }}" "-p:EffectsDir=$effects"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
@@ -38,7 +53,7 @@ jobs:
         shell: pwsh
         run: |
           $effects = Join-Path $env:RUNNER_TEMP 'effects\'
-          dotnet test Liquify.sln -c Debug --no-build --nologo --logger "trx;LogFileName=tests.trx" "-p:PdnDir=${{ steps.pdn.outputs.dir }}" "-p:LiquifyEffectsDir=$effects"
+          dotnet test $env:SOLUTION -c Debug --no-build --nologo --logger "trx;LogFileName=tests.trx" "-p:PdnDir=${{ steps.pdn.outputs.dir }}" "-p:EffectsDir=$effects"
 
       - name: Keep the test log
         if: always()
@@ -48,9 +63,11 @@ jobs:
           path: '**/TestResults/*.trx'
           if-no-files-found: ignore
 
+      # Not for pull requests from forks: a stranger's build shouldn't sit here looking official.
       - name: Keep the built plugin
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v7
         with:
-          name: Liquify-${{ github.sha }}
-          path: Liquify/bin/Release/**/Liquify.dll
+          name: ${{ env.ASSET_NAME }}-${{ github.sha }}
+          path: ${{ env.PROJECT_DIR }}/bin/Release/**/${{ env.PLUGIN_NAME }}.dll
           if-no-files-found: error

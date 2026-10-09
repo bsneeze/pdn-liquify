@@ -7,9 +7,13 @@
     <AssemblyName>Liquify</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
-    <!-- Debug builds are optimized too. The mesh and canvas loops are several times slower without it,
-         which makes the "BETA" build feel much worse than what ships. Set to false to step through code. -->
-    <Optimize>true</Optimize>
+    <!-- PdnDir, EffectsDir, BuildStamp and Beta are named the same in every plugin, so that the
+         workflows in .github only differ between them in the few names at the top of each. -->
+
+    <!-- A beta is the Release build with this set (-p:Beta=true; see .github/workflows/release.yml),
+         so that testers run the same code as a release. It names the effect "Liquify BETA" and makes
+         the update check look for newer betas too. -->
+    <DefineConstants Condition="'$(Beta)' == 'true'">$(DefineConstants);BETA</DefineConstants>
 
     <!-- Where Paint.NET is installed. Override with -p:PdnDir=...\ (keep the trailing backslash). -->
     <PdnDir Condition="'$(PdnDir)' == ''">C:\Program Files\Paint.NET\</PdnDir>
@@ -18,20 +22,31 @@
 
     <Product>Liquify</Product>
     <AssemblyTitle>Liquify</AssemblyTitle>
-    <Description>Paint.NET Plugin</Description>
+    <!-- The Plugin Browser plugin searches the description, and the keywords below it, which it
+         reads from AssemblyConfiguration. The SDK would otherwise put "Debug" or "Release" there. -->
+    <Description>Distorts an image as if it were liquid: push, twist, bloat and pucker it with a brush.</Description>
+    <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
     <Company>Zach Walker, a.k.a. pyrochild</Company>
     <Copyright>Copyright © 2010-2026 Zach Walker</Copyright>
 
     <!--
       VersionPrefix is the Paint.NET version this is built for. The rest, yyMM.ddHH, tells builds
       apart: the time of the build, unless a release passes the stamp worked out from its commit
-      (-p:LiquifyBuildStamp=2610.0614; see .github/workflows/release.yml).
+      (-p:BuildStamp=2610.0614; see .github/workflows/release.yml).
     -->
     <VersionPrefix>5.1</VersionPrefix>
-    <LiquifyBuildStamp Condition="'$(LiquifyBuildStamp)' == ''">$([System.DateTime]::Now.ToString(yyMM)).$([System.DateTime]::Now.ToString(ddHH))</LiquifyBuildStamp>
-    <AssemblyVersion>$(VersionPrefix).$(LiquifyBuildStamp)</AssemblyVersion>
+    <!-- Only a build given its stamp checks for updates: see UpdateChecker. -->
+    <DefineConstants Condition="'$(BuildStamp)' != ''">$(DefineConstants);RELEASED_BUILD</DefineConstants>
+    <BuildStamp Condition="'$(BuildStamp)' == ''">$([System.DateTime]::Now.ToString(yyMM)).$([System.DateTime]::Now.ToString(ddHH))</BuildStamp>
+    <AssemblyVersion>$(VersionPrefix).$(BuildStamp)</AssemblyVersion>
     <FileVersion>$(AssemblyVersion)</FileVersion>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyConfigurationAttribute">
+      <_Parameter1>liquify|liquefy|warp|distort|push|smear|twist|swirl|bloat|bulge|pucker|pinch|reconstruct|freeze|mask|mesh|reshape|retouch</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 
   <ItemGroup>
     <!-- lets the test project use internal types such as LiquifyRenderer -->
@@ -111,16 +126,22 @@
     <EmbeddedResource Include="images\clearmask.png" />
     <EmbeddedResource Include="images\invertmask.png" />
     <EmbeddedResource Include="images\resetall.png" />
+
+    <!-- The Plugin Browser plugin shows this as the plugin's preview: 200 x 150, found by the
+         ".sample." in its name. Before and after, made with the brush code itself (bloat on the
+         eyes, push on the corners of the mouth). The picture is Leonardo's Mona Lisa, which is in
+         the public domain, from https://commons.wikimedia.org/wiki/File:Mona_Lisa,_by_Leonardo_da_Vinci,_from_C2RMF_retouched.jpg -->
+    <EmbeddedResource Include="images\Liquify.sample.png" />
   </ItemGroup>
 
 
   <PropertyGroup>
-    <LiquifyEffectsDir>$(USERPROFILE)\Documents\paint.net App Files\Effects\</LiquifyEffectsDir>
+    <EffectsDir Condition="'$(EffectsDir)' == ''">$(USERPROFILE)\Documents\paint.net App Files\Effects\</EffectsDir>
   </PropertyGroup>
 
-  <Target Name="LiquifyCopyToEffectsFolder" AfterTargets="Build">
-    <MakeDir Directories="$(LiquifyEffectsDir)" Condition="!Exists('$(LiquifyEffectsDir)')" ContinueOnError="WarnAndContinue" />
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(LiquifyEffectsDir)" ContinueOnError="WarnAndContinue" />
+  <Target Name="CopyToEffectsFolder" AfterTargets="Build">
+    <MakeDir Directories="$(EffectsDir)" Condition="!Exists('$(EffectsDir)')" ContinueOnError="WarnAndContinue" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(EffectsDir)" ContinueOnError="WarnAndContinue" />
   </Target>
 
 </Project>

@@ -10,6 +10,8 @@ It needs Paint.NET 5.
 2. Copy `Liquify.dll` into `Documents\paint.net App Files\Effects\`.
 3. Start Paint.NET. The effect is under **Effects > Tools > Liquify**.
 
+<!-- The plugin's Help link and F1 open this page at #using-it (ShowHelp in ConfigDialog.cs).
+     Renaming this heading changes the anchor and breaks them. -->
 ## Using it
 
 Liquify works on the current layer. Pick a tool on the left, set the brush on the toolbar, and drag on the image. Nothing is applied to the layer until you press OK.
@@ -47,6 +49,7 @@ The buttons under the tools reset all distortion, thaw everything, invert the fr
 | See the original | Hold `O`, or hold the **Original** button |
 | See the whole document | Hold `A`, or hold the **All layers** button |
 | Undo / redo | `Ctrl+Z` / `Ctrl+Y` or `Ctrl+Shift+Z` |
+| Open this page | `F1`, or the **Help** link at the bottom of the window |
 
 The **View** menu controls what the canvas shows besides the image:
 
@@ -62,6 +65,10 @@ The background choices are also on the canvas's right-click menu. The brush sett
 
 **Save mesh** and **Load mesh** write and read the distortion as a `.msh` file, so it can be applied again or to another image. The format is the one Photoshop's Liquify uses, so meshes can be exchanged with it. Frozen areas are not part of the file.
 
+### Updates
+
+When you open Liquify, it fetches a small text file from the latest [pyrochild plugin pack](https://github.com/bsneeze/pdn-pyrochild-plugin-pack/releases/latest) on GitHub to see whether that has a newer version. It does this only the first time Liquify is opened after Paint.NET starts, and not at all if Liquify isn't opened. If it has, a banner above the image says so, with links to see what's new and to get it. **Not now** hides the banner for three days; the ✕ closes it until Liquify is next opened. A beta build also looks at this project's releases for a newer beta. Untick **Check for updates** at the bottom of the window to turn it off.
+
 ## Building
 
 You need the .NET 9 SDK and Paint.NET 5 installed.
@@ -72,7 +79,7 @@ dotnet build Liquify.sln -c Release
 
 - The project references Paint.NET's assemblies under `C:\Program Files\Paint.NET\`. If it is installed elsewhere, add `-p:PdnDir=<folder>\`.
 - The build copies `Liquify.dll` into your Paint.NET effects folder. Close Paint.NET first, or the copy fails with a warning.
-- A Debug build names the effect "Liquify BETA", so it can be told apart from a Release build in the menu.
+- A Debug build names the effect "Liquify DEBUG", so it can be told apart from a Release build in the menu. It isn't optimized, so the brush and the canvas are several times slower than in a Release build.
 
 Run the tests with:
 
