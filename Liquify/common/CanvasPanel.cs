@@ -1,4 +1,5 @@
 using PaintDotNet;
+using PaintDotNet.Clipboard;
 using PaintDotNet.Rendering;
 using pyrochild.effects.liquify;
 using System;
@@ -1757,35 +1758,133 @@ namespace pyrochild.effects.common
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern uint GetClipboardSequenceNumber();
 
-        private Image clipboardSwatch;        // null when the clipboard holds no image
-        private uint clipboardSwatchSequence; // which clipboard contents it was made from
-        private bool clipboardSwatchKnown;
+        /// <summary>
+        /// Paint.NET's clipboard (IClipboardService), which reads pictures with their transparency;
+        /// WinForms' loses it. Without it the background menu has no "From clipboard".
+        /// </summary>
+        public IClipboard PaintDotNetClipboard { get; set; }
 
-        // Tests replace these so as not to touch the real clipboard. The image can come back null
-        // even when the clipboard says it has one.
+        // Tests replace these so as not to touch the real clipboard.
         internal Func<uint> ClipboardSequence = GetClipboardSequenceNumber;
-        internal Func<Image> ReadClipboardImage = () => Clipboard.ContainsImage() ? Clipboard.GetImage() : null;
+        internal Func<Image> ReadClipboardImage;
 
-        // The clipboard's image as a menu swatch, or null if it holds none. Reading the image copies
-        // all of it, so that is only done again when the clipboard has changed.
+        private bool CanReadClipboard
+        {
+            get { return PaintDotNetClipboard != null || ReadClipboardImage != null; }
+        }
+
+        private Image clipboardSwatch;
+        private uint clipboardSwatchSequence;
+
+        // The picture on the clipboard, or null if there is none. Throws if another program has the
+        // clipboard open. Runs on any thread.
+        private Image ReadClipboardPicture(IntPtr owner)
+        {
+            if (ReadClipboardImage != null)
+            {
+                return ReadClipboardImage();
+            }
+
+            // TryGetSurface retries a held clipboard for ten seconds, then reports no picture.
+            // One attempt to open it answers at once.
+            using (IClipboardTransaction attempt = PaintDotNetClipboard.TryOpen(owner))
+            {
+                if (attempt == null)
+                {
+                    throw new InvalidOperationException("Another program is using the clipboard.");
+                }
+            }
+
+            using (Surface picture = PaintDotNetClipboard.TryGetSurface())
+            {
+                if (picture == null)
+                {
+                    return null;
+                }
+
+                using (Bitmap aliased = picture.CreateAliasedBitmap())
+                {
+                    return new Bitmap(aliased);
+                }
+            }
+        }
+
+        // Reads on another thread, so the wait cursor only shows if the read is slow; switched on
+        // and off around a quick read, it flashes. The window still waits for the read.
+        private Image ReadClipboardPictureWaiting()
+        {
+            IntPtr owner = this.Handle;
+            System.Threading.Tasks.Task<Image> read = System.Threading.Tasks.Task.Run(() => ReadClipboardPicture(owner));
+            System.Threading.WaitHandle done = ((IAsyncResult)read).AsyncWaitHandle;
+
+            if (!done.WaitOne(200))
+            {
+                Cursor previous = Cursor.Current;
+                Cursor.Current = Cursors.WaitCursor;
+                try
+                {
+                    // in case the read ever needed this thread, which is waiting for it
+                    if (!done.WaitOne(TimeSpan.FromSeconds(30)))
+                    {
+                        throw new TimeoutException("The clipboard didn't answer.");
+                    }
+                }
+                finally
+                {
+                    Cursor.Current = previous;
+                }
+            }
+
+            return read.GetAwaiter().GetResult();
+        }
+
+        private void UseClipboardPicture()
+        {
+            Image picture;
+            try
+            {
+                picture = ReadClipboardPictureWaiting();
+            }
+            catch (Exception ex)
+            {
+                ConfirmDialog.Notify(FindForm(), FindForm()?.Text, "The picture on the clipboard couldn't be read: " + ex.Message, SystemIcons.Warning);
+                return;
+            }
+
+            // it was there when the menu opened
+            if (picture == null)
+            {
+                ConfirmDialog.Notify(FindForm(), FindForm()?.Text, "The clipboard no longer holds a picture.", SystemIcons.Warning);
+                return;
+            }
+
+            SetBackgroundImage(picture);
+            BackgroundSurface = null;
+            canvasBackColor = Color.Transparent;
+            this.Invalidate();
+        }
+
+        // The clipboard's picture as a menu swatch, or null if it holds none or can't be read. A
+        // swatch is kept until the clipboard changes; no swatch is asked for again next time.
         internal Image GetClipboardSwatch()
         {
+            if (!CanReadClipboard)
+            {
+                return null;
+            }
+
             uint sequence = ClipboardSequence();
-            if (clipboardSwatchKnown && sequence == clipboardSwatchSequence)
+            if (clipboardSwatch != null && sequence == clipboardSwatchSequence)
             {
                 return clipboardSwatch;
             }
 
-            if (clipboardSwatch != null)
-            {
-                clipboardSwatch.Dispose();
-                clipboardSwatch = null;
-            }
-            clipboardSwatchKnown = false;
+            clipboardSwatch?.Dispose();
+            clipboardSwatch = null;
 
             try
             {
-                using (Image whole = ReadClipboardImage())
+                using (Image whole = ReadClipboardPictureWaiting())
                 {
                     if (whole != null)
                     {
@@ -1797,20 +1896,17 @@ namespace pyrochild.effects.common
                             g.DrawImage(whole, 0, 0, 16, 16);
                         }
                         clipboardSwatch = swatch;
+                        clipboardSwatchSequence = sequence;
                     }
                 }
-
-                clipboardSwatchSequence = sequence;
-                clipboardSwatchKnown = true;
             }
             catch
             {
-                // another program has the clipboard open, or the image can't be read: try again next time
+                // a menu opening is no place for a message; the entry shows disabled
             }
 
             return clipboardSwatch;
         }
-
         /// <summary>
         /// Replaces a menu's entries with the background choices, the same ones as the right-click
         /// menu, so an owner can offer them somewhere easier to find. The entry that matches the
@@ -1989,20 +2085,13 @@ namespace pyrochild.effects.common
 
                 if (onCanvas)
                 {
-                    Image clipboardSwatch = GetClipboardSwatch();
-
-                    ToolStripMenuItem fromClipboard = add("From clipboard", clipboardSwatch, canvasBackgroundImage != null, (s, e) =>
+                    if (CanReadClipboard)
                     {
-                        try
-                        {
-                            SetBackgroundImage(ReadClipboardImage());
-                            BackgroundSurface = null;
-                            canvasBackColor = Color.Transparent;
-                            this.Invalidate();
-                        }
-                        catch { }
-                    });
-                    fromClipboard.Enabled = clipboardSwatch != null;
+                        Image clipboardSwatch = GetClipboardSwatch();
+
+                        ToolStripMenuItem fromClipboard = add("From clipboard", clipboardSwatch, canvasBackgroundImage != null, (s, e) => UseClipboardPicture());
+                        fromClipboard.Enabled = clipboardSwatch != null;
+                    }
 
                     // whatever else the owner offers, such as the layers under the one being edited
                     foreach (CanvasBackgroundOption option in backgroundOptions)
