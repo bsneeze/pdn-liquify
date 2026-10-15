@@ -225,7 +225,8 @@ namespace pyrochild.effects.liquify.tests
                     Assert.Null(canvas.GetClipboardSwatch());
                     Assert.Equal(2, reads);
 
-                    // no image; this answer is remembered
+                    // no image: not remembered either, since Paint.NET's reader also gives no image
+                    // for a clipboard it couldn't read
                     canvas.ReadClipboardImage = () =>
                     {
                         ++reads;
@@ -233,7 +234,17 @@ namespace pyrochild.effects.liquify.tests
                     };
                     Assert.Null(canvas.GetClipboardSwatch());
                     Assert.Null(canvas.GetClipboardSwatch());
-                    Assert.Equal(3, reads);
+                    Assert.Equal(4, reads);
+
+                    // an image is remembered until the clipboard changes
+                    canvas.ReadClipboardImage = () =>
+                    {
+                        ++reads;
+                        return new System.Drawing.Bitmap(4, 4);
+                    };
+                    Assert.NotNull(canvas.GetClipboardSwatch());
+                    Assert.NotNull(canvas.GetClipboardSwatch());
+                    Assert.Equal(5, reads);
                 }
             });
         }

@@ -1,4 +1,5 @@
 ﻿using PaintDotNet;
+using PaintDotNet.AppModel;
 using PaintDotNet.Effects;
 using PaintDotNet.Imaging;
 using PaintDotNet.Rendering;
@@ -1307,6 +1308,10 @@ namespace pyrochild.effects.liquify
 
         private void ConfigDialog_Load(object sender, EventArgs e)
         {
+            // the provider's own: not to be disposed
+            canvas.PaintDotNetClipboard = (IClipboardService)Services.GetService(typeof(IClipboardService))
+                ?? throw new InvalidOperationException("Paint.NET did not provide its clipboard service.");
+
             int topMargin = (int)Math.Round(6 * DpiScale);
             settingStrip.Location = new Point(settingStrip.Location.X, settingStrip.Location.Y + topMargin);
 

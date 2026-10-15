@@ -28,7 +28,7 @@ namespace pyrochild.effects
 
         public Uri WebsiteUri
         {
-            get { return new Uri("http://forums.paint.net/index.php?showtopic=7291"); }
+            get { return new Uri("https://forums.paint.net/index.php?showtopic=20688"); }
         }
     }
 }
